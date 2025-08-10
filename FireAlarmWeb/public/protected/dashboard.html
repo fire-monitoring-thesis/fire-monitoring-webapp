@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Dashboard - Fire Alarm System</title>
+  <link rel="stylesheet" href="/styles/style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Toggle Button -->
+  <button id="toggleBtn"></button>
+
+  <!-- Sidebar container -->
+  <div id="sidebar-container"></div>
+
+  <!-- Main Content -->
+  <main id="main-content">
+    <h1>🔥 Fire Monitoring Dashboard</h1>
+
+    <!-- Quick Stats -->
+    <div class="stats-grid">
+      <div class="stat-card green">
+        <div class="stat-number">24</div>
+        <div class="stat-label">Active Devices</div>
+      </div>
+      <div class="stat-card blue">
+        <div class="stat-number">3</div>
+        <div class="stat-label">Today's Alerts</div>
+      </div>
+      <div class="stat-card orange">
+        <div class="stat-number">99.2%</div>
+        <div class="stat-label">System Uptime</div>
+      </div>
+      <div class="stat-card purple">
+        <div class="stat-number">156</div>
+        <div class="stat-label">Total Locations</div>
+      </div>
+    </div>
+
+    <!-- System Status Banner -->
+    <div class="status-banner">
+      <div class="status-indicator">
+        <div class="status-light green"></div>
+        <div class="status-info">
+          <h3>System Status: Operational</h3>
+          <p>All monitoring systems are functioning normally</p>
+        </div>
+      </div>
+      <div class="last-update">
+        <span>Last updated: <strong id="last-update-time">2 minutes ago</strong></span>
+      </div>
+    </div>
+
+    <!-- Current Warning Table -->
+    <div class="iframe-container">
+      <div class="iframe-box full-width">
+        <h3>🔥 Current Reading Warning Table</h3>
+        <iframe src="https://fire-monitoring-public-grafana-production.up.railway.app/d-solo/2570ee16-aaa8-44ab-84ec-075b8595970b/current-reading-warning-table?orgId=1&from=now-6h&to=now&timezone=browser&refresh=5s&theme=light&panelId=1&__feature.dashboardSceneSolo" width="100%" height="300"></iframe>
+      </div>
+    </div>
+
+    <!-- Realtime Map - Full Width with Emphasis -->
+    <div class="map-section">
+      <h2>🗺️ Realtime Location Map Monitoring</h2>
+      <p class="map-description">Live monitoring of all fire alarm devices with location-based warnings and alerts</p>
+      <div class="iframe-box full-width map-container">
+        <iframe src="https://fire-monitoring-public-grafana-production.up.railway.app/d-solo/869c9f05-c0ea-465c-a422-a482a2892a89/realtime-map-monitoring?orgId=1&from=now-5m&to=now&timezone=browser&refresh=auto&theme=light&panelId=1&__feature.dashboardSceneSolo" width="100%" height="500"></iframe>
+      </div>
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="activity-section">
+      <h2>🚨 Recent System Activity</h2>
+      <div class="activity-box">
+        <div class="activity-header">
+          <h3>Latest Status</h3>
+          <span class="status-badge normal">All Systems Normal</span>
+        </div>
+        <div class="activity-content">
+          <p>✅ System check completed at 14:32</p>
+          <p>✅ All 24 devices responding normally</p>
+          <p>📡 Last sync: 2 minutes ago</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Load auth script -->
+  <script src="/protected/script.js"></script>
+  <!-- Load messenger script -->
+  <script src="/protected/messenger.js"></script>
+
+  <!-- Page-specific functionality -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => {
+        const toggleBtn = document.getElementById('toggleBtn');
+        const sidebar = document.getElementById('sidebar');
+        const main = document.getElementById('main-content');
+
+        if (toggleBtn && sidebar && main) {
+          let sidebarVisible = true;
+          toggleBtn.style.left = '210px';
+
+          toggleBtn.addEventListener('click', () => {
+            if (sidebarVisible) {
+              sidebar.style.transform = 'translateX(-200px)';
+              main.style.marginLeft = '0';
+              toggleBtn.style.left = '1rem';
+            } else {
+              sidebar.style.transform = 'translateX(0)';
+              main.style.marginLeft = '200px';
+              toggleBtn.style.left = '210px';
+            }
+            sidebarVisible = !sidebarVisible;
+          });
+
+          // Highlight current page
+          const currentPage = window.location.pathname;
+          document.querySelectorAll('#sidebar a').forEach(link => {
+            if (link.getAttribute('href') === currentPage) {
+              link.classList.add('active');
+            }
+          });
+        }
+      }, 100);
+
+      // Update last update time dynamically
+      function updateLastUpdateTime() {
+        const lastUpdateElement = document.getElementById('last-update-time');
+        if (lastUpdateElement) {
+          const now = new Date();
+          const minutes = Math.floor(Math.random() * 5) + 1; // Random 1-5 minutes
+          lastUpdateElement.textContent = `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+        }
+      }
+
+      // Update every 30 seconds
+      updateLastUpdateTime();
+      setInterval(updateLastUpdateTime, 30000);
+    });
+  </script>
+</body>
+</html>
