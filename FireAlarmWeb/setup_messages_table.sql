@@ -11,7 +11,7 @@ CREATE TABLE messages (
     edited_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
-    -- Add constraints
+    -- Add constraints test drive 
     CONSTRAINT messages_message_length CHECK (LENGTH(message) <= 1000),
     CONSTRAINT messages_type_check CHECK (message_type IN ('text', 'system', 'alert'))
 );
