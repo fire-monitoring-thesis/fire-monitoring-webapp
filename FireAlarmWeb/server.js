@@ -13,7 +13,7 @@ const messageRoutes = require('./routes/messages');
 const { ensureAuthenticated } = require('./middleware/auth');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8000;  // ✅ only declare once, use 8000
 
 // PostgreSQL connection
 const pool = new pg.Pool({
@@ -73,6 +73,6 @@ app.post('/logout', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, () => {
   console.log(`Server running on http://0.0.0.0:${PORT}`);
 });
