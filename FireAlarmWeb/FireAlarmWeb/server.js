@@ -8,7 +8,6 @@ dotenv.config();
 
 const authRoutes = require('./routes/auth');
 const apiRoutes = require('./routes/api');
-const messageRoutes = require('./routes/messages');
 
 const { ensureAuthenticated } = require('./middleware/auth');
 
@@ -39,7 +38,6 @@ app.use((req, res, next) => {
 // Routes
 app.use('/auth', authRoutes);
 app.use('/api', apiRoutes);
-app.use('/messages', messageRoutes);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -50,6 +48,11 @@ app.get('/', (req, res) => {
   } else {
     res.redirect('/login.html');
   }
+});
+
+// Signup route (accessible without authentication)
+app.get('/signup.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/signup.html'));
 });
 
 // Protect /protected pages
@@ -73,6 +76,6 @@ app.post('/logout', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
 });

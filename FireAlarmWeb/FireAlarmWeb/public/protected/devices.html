@@ -1,0 +1,89 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Devices - Fire Alarm System</title>
+  <link rel="stylesheet" href="/styles/style.css" />
+</head>
+<body>
+  <!-- Toggle Button -->
+  <button id="toggleBtn"></button>
+
+  <!-- Sidebar container -->
+  <div id="sidebar-container"></div>
+
+  <!-- Main Content -->
+  <main id="main-content">
+    <h1>📟 Device Management</h1>
+
+    <!-- Device List Panel -->
+    <div class="iframe-container">
+      <div class="iframe-box full-width">
+        <h3>Active Device List</h3>
+        <iframe src="https://fire-monitoring-public-grafana-production.up.railway.app/d-solo/a47edecb-56dc-42aa-b794-6ac302a09b38/device-lists?orgId=1&from=now-6h&to=now&timezone=browser&theme=light&panelId=1&__feature.dashboardSceneSolo" width="100%" height="600"></iframe>
+      </div>
+    </div>
+
+    <!-- Device Statistics -->
+    <div class="stats-grid">
+      <div class="stat-card green">
+        <div class="stat-number">24</div>
+        <div class="stat-label">Online Devices</div>
+      </div>
+      <div class="stat-card red">
+        <div class="stat-number">0</div>
+        <div class="stat-label">Offline Devices</div>
+      </div>
+      <div class="stat-card yellow">
+        <div class="stat-number">3</div>
+        <div class="stat-label">Warning Status</div>
+      </div>
+      <div class="stat-card blue">
+        <div class="stat-number">156</div>
+        <div class="stat-label">Total Locations</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Load auth script -->
+  <script src="/protected/script.js"></script>
+
+  <!-- Page-specific functionality -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => {
+        const toggleBtn = document.getElementById('toggleBtn');
+        const sidebar = document.getElementById('sidebar');
+        const main = document.getElementById('main-content');
+
+        if (toggleBtn && sidebar && main) {
+          let sidebarVisible = true;
+          toggleBtn.style.left = '210px';
+
+          toggleBtn.addEventListener('click', () => {
+            if (sidebarVisible) {
+              sidebar.style.transform = 'translateX(-200px)';
+              main.style.marginLeft = '0';
+              toggleBtn.style.left = '1rem';
+            } else {
+              sidebar.style.transform = 'translateX(0)';
+              main.style.marginLeft = '200px';
+              toggleBtn.style.left = '210px';
+            }
+            sidebarVisible = !sidebarVisible;
+          });
+
+          // Highlight current page
+          const currentPage = window.location.pathname;
+          document.querySelectorAll('#sidebar a').forEach(link => {
+            if (link.getAttribute('href') === currentPage) {
+              link.classList.add('active');
+            }
+          });
+        }
+      }, 100);
+    });
+  </script>
+</body>
+</html>
