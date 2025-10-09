@@ -72,8 +72,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // 6. Highlight current page
             highlightCurrentPage();
 
-            // 7. Load messenger system
-            loadMessengerScript();
+            // 7. All systems loaded
+            console.log('✅ All systems loaded');
 
             return sessionData;
           }
@@ -123,20 +123,4 @@ function highlightCurrentPage() {
   });
 }
 
-function loadMessengerScript() {
-  // Check if messenger script is already loaded
-  if (document.getElementById('messenger-script')) {
-    return;
-  }
 
-  const script = document.createElement('script');
-  script.id = 'messenger-script';
-  script.src = '/protected/messenger.js';
-  script.onload = () => {
-    console.log('✅ Messenger script loaded');
-  };
-  script.onerror = () => {
-    console.error('❌ Failed to load messenger script');
-  };
-  document.head.appendChild(script);
-}

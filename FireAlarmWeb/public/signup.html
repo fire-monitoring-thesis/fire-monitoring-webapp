@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>🔥 FireAlarm Pro - Login</title>
+  <title>🔥 FireAlarm Pro - Sign Up</title>
   <link rel="stylesheet" href="/styles/style.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -16,20 +16,32 @@
         <div style="font-size: 3rem; margin-bottom: 0.5rem;">
           <span class="fire-icon">🔥</span>
         </div>
-        <h2>FireAlarm Pro</h2>
-        <p>Secure Fire Monitoring System</p>
+        <h2>Create Account</h2>
+        <p>Join FireAlarm Pro System</p>
       </div>
 
-      <form action="/auth/login" method="POST" class="login-form">
+      <form action="/auth/signup" method="POST" class="login-form">
         <div class="form-group">
-          <label for="email" class="form-label">Username or Email</label>
+          <label for="username" class="form-label">Username</label>
           <input
             type="text"
+            id="username"
+            name="username"
+            required
+            class="form-input"
+            placeholder="Enter your username"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="email" class="form-label">Email</label>
+          <input
+            type="email"
             id="email"
             name="email"
             required
             class="form-input"
-            placeholder="Enter your username or email"
+            placeholder="Enter your email"
           />
         </div>
         
@@ -41,51 +53,63 @@
             name="password"
             required
             class="form-input"
-            placeholder="Enter your password"
+            placeholder="Create a password"
           />
+        </div>
+
+        <div class="form-group">
+          <label for="role" class="form-label">User Type</label>
+          <select
+            id="role"
+            name="role"
+            required
+            class="form-input"
+          >
+            <option value="responder">🚒 Emergency Responder</option>
+            <option value="admin">👑 Administrator</option>
+          </select>
         </div>
         
         <button type="submit" class="login-btn">
-          🔐 Sign In to Dashboard
+          🚀 Create Account
         </button>
       </form>
 
       <div class="login-footer">
         <p>
-          <a href="/signup.html" style="color: #dc2626; text-decoration: none; font-weight: 500;">Don't have an account? Sign Up</a><br>
-          <span style="color: #6b7280; font-size: 0.75rem;">🔒 Secure Access Only</span>
+          <a href="/login.html" style="color: #dc2626; text-decoration: none;">Already have an account? Sign In</a>
         </p>
       </div>
     </div>
   </div>
 
-  <!-- Login Alert Scripts -->
+  <!-- Signup Alert Scripts -->
   <script>
     const urlParams = new URLSearchParams(window.location.search);
     const message = urlParams.get('message');
 
-    if (message === 'logout') {
-      Swal.fire({
-        icon: 'success',
-        title: 'Logged Out Successfully',
-        text: 'You have been securely logged out.',
-        iconColor: '#10b981',
-        confirmButtonColor: '#dc2626'
-      });
-    } else if (message === 'session') {
-      Swal.fire({
-        icon: 'warning',
-        title: 'Authentication Required',
-        text: 'Please log in to access the fire monitoring dashboard.',
-        iconColor: '#f59e0b',
-        confirmButtonColor: '#dc2626'
-      });
-    } else if (message === 'invalid') {
+    if (message === 'taken') {
       Swal.fire({
         icon: 'error',
-        title: 'Login Failed',
-        text: 'Invalid email or password. Please try again.',
+        title: 'Account Exists',
+        text: 'Username or email is already taken. Please try different credentials.',
         iconColor: '#dc2626',
+        confirmButtonColor: '#dc2626'
+      });
+    } else if (message === 'server') {
+      Swal.fire({
+        icon: 'error',
+        title: 'Server Error',
+        text: 'There was an error creating your account. Please try again.',
+        iconColor: '#dc2626',
+        confirmButtonColor: '#dc2626'
+      });
+    } else if (message === 'signedup') {
+      Swal.fire({
+        icon: 'success',
+        title: 'Account Created!',
+        text: 'Your account has been created successfully. You can now log in.',
+        iconColor: '#10b981',
         confirmButtonColor: '#dc2626'
       });
     }

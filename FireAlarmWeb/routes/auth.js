@@ -5,7 +5,7 @@ const router = express.Router();
 
 // 🟩 ROUTE: POST /auth/signup
 router.post('/signup', async (req, res) => {
-  const { username, email, password } = req.body;
+  const { username, email, password, role } = req.body;
   const pool = req.pool;
 
   try {
@@ -21,9 +21,9 @@ router.post('/signup', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     await pool.query(
-      `INSERT INTO users (username, email, password, is_active, created_at, role)
-       VALUES ($1, $2, $3, $4, NOW(), $5)`,
-      [username, email, hashedPassword, true, 'user']
+      `INSERT INTO users (username, email, password, role, created_at)
+       VALUES ($1, $2, $3, $4, NOW())`,
+      [username, email, hashedPassword, role || 'responder']
     );
 
     return res.redirect('/login.html?message=signedup');

@@ -48,10 +48,13 @@ router.post("/users", async (req, res) => {
       return res.status(400).json({ error: "Username or email already exists" });
     }
 
-    const hashed = await bcrypt.hash(password, 10);
+    // Hash the password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Insert the new user
     const result = await req.pool.query(
       "INSERT INTO users (username, email, password, role, created_at) VALUES ($1, $2, $3, $4, NOW()) RETURNING id, username, email, role, created_at",
-      [username, email, hashed, role]
+      [username, email, hashedPassword, role]
     );
 
     res.json({ success: true, user: result.rows[0] });
