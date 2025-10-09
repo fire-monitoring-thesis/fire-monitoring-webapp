@@ -1,2 +1,0 @@
--- This file is no longer needed as messages functionality has been removed
--- Use the main SQL commands provided for creating the users table
