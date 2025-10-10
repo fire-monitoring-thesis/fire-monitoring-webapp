@@ -1,25 +1,23 @@
-# -------------------------------
-# Stage 1 — Build Stage (optional if no frontend build)
-# -------------------------------
-FROM node:18 AS base
+# Production-ready Dockerfile for Node.js app
+FROM node:18-alpine
 
-# Set working directory inside the container
+# Create app directory
 WORKDIR /usr/src/app
 
-# Copy only package.json + package-lock.json first for layer caching
+# Install dependencies
 COPY package*.json ./
+RUN npm ci --only=production
 
-# Install dependencies (production only for smaller image)
-RUN npm install --production
-
-# Copy the rest of the app
+# Copy app source
 COPY . .
 
-# Expose the app port (same as in .env / compose)
+# Ensure non-root user (recommended)
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
+
+# Expose application port
 EXPOSE 8000
 
-# Define environment (can be overridden by Docker Compose)
 ENV NODE_ENV=production
 
-# Start the app
-CMD ["node", "server.js"]
+CMD [ "node", "server.js" ]
