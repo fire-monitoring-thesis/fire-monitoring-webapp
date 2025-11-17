@@ -88,6 +88,30 @@
         iconColor: '#dc2626',
         confirmButtonColor: '#dc2626'
       });
+    } else if (message === 'pending') {
+      Swal.fire({
+        icon: 'info',
+        title: 'Account Pending Approval',
+        html: 'Your account has been created successfully, but it is pending admin approval.<br><br>An administrator will review your request and approve your account. You will be able to log in once your account is approved.',
+        iconColor: '#3b82f6',
+        confirmButtonColor: '#dc2626'
+      });
+    } else if (message === 'rejected') {
+      Swal.fire({
+        icon: 'error',
+        title: 'Account Rejected',
+        text: 'Your account has been rejected. Please contact an administrator for assistance.',
+        iconColor: '#dc2626',
+        confirmButtonColor: '#dc2626'
+      });
+    } else if (message === 'signedup') {
+      Swal.fire({
+        icon: 'success',
+        title: 'Account Created!',
+        html: 'Your account has been created successfully!<br><br>Your account is pending admin approval. An administrator will review your request and approve your account. You will be able to log in once your account is approved.',
+        iconColor: '#10b981',
+        confirmButtonColor: '#dc2626'
+      });
     }
 
     // Clean the URL so alerts don't repeat on refresh

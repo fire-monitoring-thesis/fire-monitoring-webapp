@@ -96,13 +96,13 @@ function setupToggleButton() {
 
     toggleBtn.addEventListener('click', () => {
       if (sidebarVisible) {
-        sidebar.style.transform = 'translateX(-240px)';
+        sidebar.style.transform = 'translateX(-260px)';
         mainContent.style.marginLeft = '0';
         toggleBtn.style.left = '1rem';
       } else {
         sidebar.style.transform = 'translateX(0)';
-        mainContent.style.marginLeft = '240px';
-        toggleBtn.style.left = '260px';
+        mainContent.style.marginLeft = '260px';
+        toggleBtn.style.left = '280px';
       }
       sidebarVisible = !sidebarVisible;
     });

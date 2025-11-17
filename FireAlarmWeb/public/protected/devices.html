@@ -28,19 +28,19 @@
     <!-- Device Statistics -->
     <div class="stats-grid">
       <div class="stat-card green">
-        <div class="stat-number">24</div>
+        <div class="stat-number" id="online-devices-stat">-</div>
         <div class="stat-label">Online Devices</div>
       </div>
       <div class="stat-card red">
-        <div class="stat-number">0</div>
+        <div class="stat-number" id="offline-devices-stat">-</div>
         <div class="stat-label">Offline Devices</div>
       </div>
       <div class="stat-card yellow">
-        <div class="stat-number">3</div>
+        <div class="stat-number" id="warning-status-stat">-</div>
         <div class="stat-label">Warning Status</div>
       </div>
       <div class="stat-card blue">
-        <div class="stat-number">156</div>
+        <div class="stat-number" id="total-locations-devices-stat">-</div>
         <div class="stat-label">Total Locations</div>
       </div>
     </div>
@@ -59,17 +59,17 @@
 
         if (toggleBtn && sidebar && main) {
           let sidebarVisible = true;
-          toggleBtn.style.left = '210px';
+          toggleBtn.style.left = '280px';
 
           toggleBtn.addEventListener('click', () => {
             if (sidebarVisible) {
-              sidebar.style.transform = 'translateX(-200px)';
+              sidebar.style.transform = 'translateX(-260px)';
               main.style.marginLeft = '0';
               toggleBtn.style.left = '1rem';
             } else {
               sidebar.style.transform = 'translateX(0)';
-              main.style.marginLeft = '200px';
-              toggleBtn.style.left = '210px';
+              main.style.marginLeft = '260px';
+              toggleBtn.style.left = '280px';
             }
             sidebarVisible = !sidebarVisible;
           });
@@ -83,6 +83,27 @@
           });
         }
       }, 100);
+
+      // Load device statistics
+      async function loadDeviceStats() {
+        try {
+          const res = await fetch('/api/devices/stats');
+          const data = await res.json();
+          
+          document.getElementById('online-devices-stat').textContent = data.onlineDevices || 0;
+          document.getElementById('offline-devices-stat').textContent = data.offlineDevices || 0;
+          document.getElementById('warning-status-stat').textContent = data.warningStatus || 0;
+          document.getElementById('total-locations-devices-stat').textContent = data.totalLocations || 0;
+        } catch (err) {
+          console.error('Error loading device stats:', err);
+        }
+      }
+
+      // Initial load
+      loadDeviceStats();
+
+      // Auto-refresh every 5 minutes (300000ms)
+      setInterval(loadDeviceStats, 300000);
     });
   </script>
 </body>

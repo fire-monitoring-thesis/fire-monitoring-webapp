@@ -7,70 +7,293 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <!-- Toggle Button -->
   <button id="toggleBtn"></button>
-
-  <!-- Sidebar container -->
   <div id="sidebar-container"></div>
 
-  <!-- Main content -->
   <main id="main-content">
     <h1>📋 Incident Logs</h1>
 
-    <div class="page-placeholder">
-      <div class="placeholder-icon">📋</div>
-      <h2 class="placeholder-title">Incident Log System</h2>
-      <p class="placeholder-description">
-        Track and manage all fire-related incidents with comprehensive logging and documentation capabilities.
-      </p>
-      <ul class="placeholder-features">
-        <li>🚨 Real-time incident recording</li>
-        <li>📝 Detailed incident reports</li>
-        <li>🔍 Advanced search and filtering</li>
-        <li>📊 Incident trend analysis</li>
-        <li>📄 Export logs for compliance</li>
-      </ul>
+    <!-- Filters -->
+    <div class="device-select" style="margin-bottom: 2rem;">
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 1rem; align-items: end;">
+        <div>
+          <label for="filterDevice">Filter by Device:</label>
+          <select id="filterDevice">
+            <option value="">All Devices</option>
+          </select>
+        </div>
+        <div>
+          <label for="filterStartDate">Start Date:</label>
+          <input type="date" id="filterStartDate">
+        </div>
+        <div>
+          <label for="filterEndDate">End Date:</label>
+          <input type="date" id="filterEndDate">
+        </div>
+        <div>
+          <button class="btn btn-primary" onclick="loadIncidents()">Apply Filters</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="time-filters" style="margin-bottom: 2rem;">
+      <button data-tab="pending" class="active" onclick="switchTab('pending')">Pending Verification</button>
+      <button data-tab="verified" onclick="switchTab('verified')">Verified Incidents</button>
+    </div>
+
+    <!-- Pending Incidents Section -->
+    <div id="pending-section">
+      <h2>⏳ Pending Verification</h2>
+      <div id="pending-incidents-container">
+        <div class="loading-content">
+          <div class="loading-spinner"></div>
+          <div class="loading-text">Loading incidents...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Verified Incidents Section -->
+    <div id="verified-section" style="display: none;">
+      <h2>✅ Verified Incidents</h2>
+      <div id="verified-incidents-container">
+        <div class="loading-content">
+          <div class="loading-spinner"></div>
+          <div class="loading-text">Loading incidents...</div>
+        </div>
+      </div>
     </div>
   </main>
 
-  <!-- Load auth script -->
   <script src="/protected/script.js"></script>
 
-  <!-- Page-specific functionality -->
   <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      // Wait for sidebar to load, then setup toggle
-      setTimeout(() => {
-        const toggleBtn = document.getElementById('toggleBtn');
-        const sidebar = document.getElementById('sidebar');
-        const main = document.getElementById('main-content');
+    let currentUserRole = null;
+    let devices = [];
 
-        if (toggleBtn && sidebar && main) {
-          let sidebarVisible = true;
-          toggleBtn.style.left = '210px';
-
-          toggleBtn.addEventListener('click', () => {
-            if (sidebarVisible) {
-              sidebar.style.transform = 'translateX(-200px)';
-              main.style.marginLeft = '0';
-              toggleBtn.style.left = '1rem';
-            } else {
-              sidebar.style.transform = 'translateX(0)';
-              main.style.marginLeft = '200px';
-              toggleBtn.style.left = '210px';
-            }
-            sidebarVisible = !sidebarVisible;
-          });
-
-          // Highlight current page
-          const currentPage = window.location.pathname;
-          document.querySelectorAll('#sidebar a').forEach(link => {
-            if (link.getAttribute('href') === currentPage) {
-              link.classList.add('active');
-            }
-          });
+    // Get current user role
+    async function getCurrentUser() {
+      try {
+        const res = await fetch('/auth/session');
+        if (res.ok) {
+          const data = await res.json();
+          currentUserRole = data.role;
         }
-      }, 100);
+      } catch (err) {
+        console.error('Error fetching user:', err);
+      }
+    }
+
+    // Fetch devices for filter
+    async function fetchDevices() {
+      try {
+        const res = await fetch('/api/analytics/devices');
+        const data = await res.json();
+        devices = data.devices || [];
+        
+        const select = document.getElementById('filterDevice');
+        devices.forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = d.m;
+          opt.textContent = d.m;
+          select.appendChild(opt);
+        });
+      } catch (err) {
+        console.error('Error fetching devices:', err);
+      }
+    }
+
+    // Load incidents
+    async function loadIncidents() {
+      const device = document.getElementById('filterDevice').value;
+      const startDate = document.getElementById('filterStartDate').value;
+      const endDate = document.getElementById('filterEndDate').value;
+
+      const params = new URLSearchParams();
+      if (device) params.append('device', device);
+      if (startDate) params.append('startDate', startDate);
+      if (endDate) params.append('endDate', endDate);
+
+      try {
+        const res = await fetch(`/api/incidents?${params.toString()}`);
+        const data = await res.json();
+
+        renderPendingIncidents(data.pending || []);
+        renderVerifiedIncidents(data.verified || []);
+      } catch (err) {
+        console.error('Error loading incidents:', err);
+        document.getElementById('pending-incidents-container').innerHTML = 
+          '<div class="error-message">Failed to load incidents. Please try again.</div>';
+      }
+    }
+
+    // Render pending incidents
+    function renderPendingIncidents(incidents) {
+      const container = document.getElementById('pending-incidents-container');
+      
+      if (incidents.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">No Pending Incidents</div><div class="empty-state-description">All incidents have been verified or there are no active alerts.</div></div>';
+        return;
+      }
+
+      const isAdmin = currentUserRole === 'admin';
+      
+      container.innerHTML = `
+        <div class="activity-box">
+          <div class="activity-header">
+            <h3>Pending Incidents (${incidents.length})</h3>
+          </div>
+          <div class="activity-content" style="padding: 0;">
+            <table style="width: 100%; border-collapse: collapse;">
+              <thead>
+                <tr style="background: var(--neutral-50); border-bottom: 2px solid var(--neutral-200);">
+                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Device ID</th>
+                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Timestamp</th>
+                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Alert Level</th>
+                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Flame</th>
+                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Smoke</th>
+                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Temperature</th>
+                  ${isAdmin ? '<th style="padding: 1rem; text-align: left; font-weight: 600;">Action</th>' : ''}
+                </tr>
+              </thead>
+              <tbody>
+                ${incidents.map(incident => `
+                  <tr style="border-bottom: 1px solid var(--neutral-200);">
+                    <td style="padding: 1rem;">${incident.device_id || 'N/A'}</td>
+                    <td style="padding: 1rem;">${new Date(incident.timestamp).toLocaleString()}</td>
+                    <td style="padding: 1rem;">
+                      <span class="status-badge ${incident.alert_level >= 3 ? 'critical' : incident.alert_level > 0 ? 'warning' : 'normal'}">
+                        Level ${incident.alert_level}
+                      </span>
+                    </td>
+                    <td style="padding: 1rem;">${incident.flame_value?.toFixed(2) || 'N/A'}</td>
+                    <td style="padding: 1rem;">${incident.smoke_value?.toFixed(2) || 'N/A'}</td>
+                    <td style="padding: 1rem;">${incident.temp_value?.toFixed(2) || 'N/A'}</td>
+                    ${isAdmin ? `
+                      <td style="padding: 1rem;">
+                        <button class="btn btn-primary" onclick="verifyIncident('${incident.device_id}', '${incident.timestamp}', ${incident.alert_level}, ${incident.flame_value || 0}, ${incident.smoke_value || 0}, ${incident.temp_value || 0})">
+                          Verify
+                        </button>
+                      </td>
+                    ` : ''}
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    // Render verified incidents
+    function renderVerifiedIncidents(incidents) {
+      const container = document.getElementById('verified-incidents-container');
+      
+      if (incidents.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">No Verified Incidents</div><div class="empty-state-description">No incidents have been verified yet.</div></div>';
+        return;
+      }
+
+      container.innerHTML = `
+        <div class="activity-box">
+          <div class="activity-header">
+            <h3>Verified Incidents (${incidents.length})</h3>
+          </div>
+          <div class="activity-content" style="padding: 0;">
+            <table style="width: 100%; border-collapse: collapse;">
+              <thead>
+                <tr style="background: var(--neutral-50); border-bottom: 2px solid var(--neutral-200);">
+                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Device ID</th>
+                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Incident Time</th>
+                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Alert Level</th>
+                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Flame</th>
+                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Smoke</th>
+                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Temperature</th>
+                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Verified By</th>
+                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Verified At</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${incidents.map(incident => `
+                  <tr style="border-bottom: 1px solid var(--neutral-200);">
+                    <td style="padding: 1rem;">${incident.device_id || 'N/A'}</td>
+                    <td style="padding: 1rem;">${new Date(incident.timestamp).toLocaleString()}</td>
+                    <td style="padding: 1rem;">
+                      <span class="status-badge ${incident.alert_level >= 3 ? 'critical' : incident.alert_level > 0 ? 'warning' : 'normal'}">
+                        Level ${incident.alert_level}
+                      </span>
+                    </td>
+                    <td style="padding: 1rem;">${incident.flame_value?.toFixed(2) || 'N/A'}</td>
+                    <td style="padding: 1rem;">${incident.smoke_value?.toFixed(2) || 'N/A'}</td>
+                    <td style="padding: 1rem;">${incident.temp_value?.toFixed(2) || 'N/A'}</td>
+                    <td style="padding: 1rem;">${incident.verified_by_username || 'N/A'}</td>
+                    <td style="padding: 1rem;">${new Date(incident.verified_at).toLocaleString()}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    // Verify incident
+    async function verifyIncident(deviceId, timestamp, alertLevel, flameValue, smokeValue, tempValue) {
+      if (!confirm('Are you sure you want to verify this incident? This will save it to the verified incidents database.')) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/incidents/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            device_id: deviceId,
+            timestamp: timestamp,
+            alert_level: alertLevel,
+            flame_value: flameValue,
+            smoke_value: smokeValue,
+            temp_value: tempValue,
+            notes: ''
+          })
+        });
+
+        const data = await res.json();
+        
+        if (res.ok) {
+          alert('Incident verified successfully!');
+          loadIncidents(); // Reload incidents
+        } else {
+          alert('Error: ' + (data.error || 'Failed to verify incident'));
+        }
+      } catch (err) {
+        console.error('Error verifying incident:', err);
+        alert('Failed to verify incident. Please try again.');
+      }
+    }
+
+    // Switch tab
+    function switchTab(tab) {
+      document.querySelectorAll('.time-filters button').forEach(btn => btn.classList.remove('active'));
+      document.querySelector(`.time-filters button[data-tab="${tab}"]`).classList.add('active');
+      
+      if (tab === 'pending') {
+        document.getElementById('pending-section').style.display = 'block';
+        document.getElementById('verified-section').style.display = 'none';
+      } else {
+        document.getElementById('pending-section').style.display = 'none';
+        document.getElementById('verified-section').style.display = 'block';
+      }
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', async () => {
+      await getCurrentUser();
+      await fetchDevices();
+      await loadIncidents();
+
+      // Auto-refresh every 5 minutes
+      setInterval(loadIncidents, 300000);
     });
   </script>
 </body>

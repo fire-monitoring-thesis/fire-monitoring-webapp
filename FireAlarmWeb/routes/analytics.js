@@ -34,9 +34,12 @@ router.get('/', async (req, res) => {
 
     try {
         const result = await pool.query(query, params);
+        console.log(`Analytics query: ${view}, device: ${deviceId || 'all'}, rows: ${result.rows.length}`);
         return res.json({ range, view, rows: result.rows });
     } catch (err) {
         console.error("Analytics query error:", err);
+        console.error("Query was:", query);
+        console.error("Params were:", params);
         return res.status(500).json({ error: err.message });
     }
 });
@@ -46,7 +49,16 @@ router.get('/', async (req, res) => {
 router.get('/devices', async (req, res) => {
     const pool = req.pool;
     try {
-        const result = await pool.query(`SELECT DISTINCT m FROM sensor_data_aggregated ORDER BY m`);
+        // Try sensor_data_aggregated first, fallback to hourly view if it doesn't exist
+        let result;
+        try {
+            result = await pool.query(`SELECT DISTINCT m FROM sensor_data_aggregated WHERE m IS NOT NULL ORDER BY m`);
+        } catch (err) {
+            // Fallback to hourly view if aggregated doesn't exist
+            console.warn("sensor_data_aggregated not found, using sensor_data_hourly");
+            result = await pool.query(`SELECT DISTINCT m FROM sensor_data_hourly WHERE m IS NOT NULL ORDER BY m`);
+        }
+        
         return res.json({ devices: result.rows });
     } catch (err) {
         console.error("Error fetching devices:", err);

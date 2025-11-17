@@ -51,9 +51,9 @@ router.post("/users", async (req, res) => {
     // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Insert the new user
+    // Insert the new user - admin-created users are automatically approved
     const result = await req.pool.query(
-      "INSERT INTO users (username, email, password, role, created_at) VALUES ($1, $2, $3, $4, NOW()) RETURNING id, username, email, role, created_at",
+      "INSERT INTO users (username, email, password, role, status, created_at) VALUES ($1, $2, $3, $4, 'approved', NOW()) RETURNING id, username, email, role, created_at",
       [username, email, hashedPassword, role]
     );
 
@@ -170,6 +170,385 @@ router.post("/verify-admin", async (req, res) => {
     }
   } catch (err) {
     res.status(500).json({ error: "Error verifying admin credentials" });
+  }
+});
+
+// ====== DASHBOARD STATISTICS ======
+
+// GET dashboard statistics
+router.get("/dashboard/stats", async (req, res) => {
+  if (!req.session.user) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+
+  try {
+    const pool = req.pool;
+
+    // Active Devices - devices with data in last 10 minutes
+    const activeDevicesResult = await pool.query(
+      `SELECT COUNT(DISTINCT m) as count 
+       FROM sensor_data_aggregated 
+       WHERE timestamp_window > NOW() - INTERVAL '10 minutes'`
+    );
+    const activeDevices = parseInt(activeDevicesResult.rows[0]?.count || 0);
+
+    // Today's Alerts - incidents with alert level > 0 from today
+    const alertsResult = await pool.query(
+      `SELECT COUNT(*) as count 
+       FROM sensor_data_daily 
+       WHERE max_alert_level > 0 
+       AND DATE(timestamp_window) = CURRENT_DATE`
+    );
+    const todayAlerts = parseInt(alertsResult.rows[0]?.count || 0);
+
+    // System Uptime - calculate from online devices vs total devices
+    const totalDevicesResult = await pool.query(
+      `SELECT COUNT(DISTINCT m) as count FROM sensor_data_aggregated`
+    );
+    const totalDevices = parseInt(totalDevicesResult.rows[0]?.count || 1);
+    const uptimePercentage = totalDevices > 0 ? ((activeDevices / totalDevices) * 100).toFixed(1) : 0;
+
+    // Total Locations - use distinct device count as proxy
+    const locationsResult = await pool.query(
+      `SELECT COUNT(DISTINCT m) as count FROM sensor_data_aggregated`
+    );
+    const totalLocations = parseInt(locationsResult.rows[0]?.count || 0);
+
+    res.json({
+      activeDevices,
+      todayAlerts,
+      systemUptime: `${uptimePercentage}%`,
+      totalLocations
+    });
+  } catch (err) {
+    console.error("Error fetching dashboard stats:", err);
+    res.status(500).json({ error: "Error fetching dashboard statistics" });
+  }
+});
+
+// GET dashboard status
+router.get("/dashboard/status", async (req, res) => {
+  if (!req.session.user) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+
+  try {
+    const pool = req.pool;
+
+    // Get latest alert level to determine system status
+    const statusResult = await pool.query(
+      `SELECT MAX(max_alert_level) as max_level 
+       FROM sensor_data_hourly 
+       WHERE timestamp_window > NOW() - INTERVAL '1 hour'`
+    );
+    const maxAlertLevel = parseInt(statusResult.rows[0]?.max_level || 0);
+
+    let systemStatus = "Operational";
+    if (maxAlertLevel >= 3) {
+      systemStatus = "Critical";
+    } else if (maxAlertLevel > 0) {
+      systemStatus = "Warning";
+    }
+
+    // Get last update timestamp
+    const lastUpdateResult = await pool.query(
+      `SELECT MAX(timestamp_window) as last_update 
+       FROM sensor_data_hourly`
+    );
+    const lastUpdate = lastUpdateResult.rows[0]?.last_update || new Date();
+
+    // Get device count responding
+    const respondingDevicesResult = await pool.query(
+      `SELECT COUNT(DISTINCT m) as count 
+       FROM sensor_data_hourly 
+       WHERE timestamp_window > NOW() - INTERVAL '10 minutes'`
+    );
+    const respondingDevices = parseInt(respondingDevicesResult.rows[0]?.count || 0);
+
+    // Calculate time ago
+    const lastUpdateTime = new Date(lastUpdate);
+    const now = new Date();
+    const diffMinutes = Math.floor((now - lastUpdateTime) / (1000 * 60));
+    const timeAgo = diffMinutes < 1 ? "Just now" : `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`;
+
+    res.json({
+      systemStatus,
+      lastUpdate: timeAgo,
+      lastUpdateTimestamp: lastUpdate,
+      respondingDevices,
+      recentActivity: `System check completed at ${lastUpdateTime.toLocaleTimeString()}`,
+      activityDetails: `All ${respondingDevices} devices responding normally`
+    });
+  } catch (err) {
+    console.error("Error fetching dashboard status:", err);
+    res.status(500).json({ error: "Error fetching dashboard status" });
+  }
+});
+
+// ====== DEVICE STATISTICS ======
+
+// GET device statistics
+router.get("/devices/stats", async (req, res) => {
+  if (!req.session.user) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+
+  try {
+    const pool = req.pool;
+
+    // Online Devices - devices with data in last 10 minutes
+    const onlineResult = await pool.query(
+      `SELECT COUNT(DISTINCT m) as count 
+       FROM sensor_data_hourly 
+       WHERE timestamp_window > NOW() - INTERVAL '10 minutes'`
+    );
+    const onlineDevices = parseInt(onlineResult.rows[0]?.count || 0);
+
+    // Total Devices
+    const totalResult = await pool.query(
+      `SELECT COUNT(DISTINCT m) as count FROM sensor_data_aggregated`
+    );
+    const totalDevices = parseInt(totalResult.rows[0]?.count || 0);
+    const offlineDevices = totalDevices - onlineDevices;
+
+    // Warning Status - devices with alert level > 0
+    const warningResult = await pool.query(
+      `SELECT COUNT(DISTINCT m) as count 
+       FROM sensor_data_hourly 
+       WHERE max_alert_level > 0 
+       AND timestamp_window > NOW() - INTERVAL '1 hour'`
+    );
+    const warningStatus = parseInt(warningResult.rows[0]?.count || 0);
+
+    // Total Locations
+    const locationsResult = await pool.query(
+      `SELECT COUNT(DISTINCT m) as count FROM sensor_data_aggregated`
+    );
+    const totalLocations = parseInt(locationsResult.rows[0]?.count || 0);
+
+    res.json({
+      onlineDevices,
+      offlineDevices,
+      warningStatus,
+      totalLocations
+    });
+  } catch (err) {
+    console.error("Error fetching device stats:", err);
+    res.status(500).json({ error: "Error fetching device statistics" });
+  }
+});
+
+// ====== INCIDENTS ======
+
+// GET incidents (pending and verified)
+router.get("/incidents", async (req, res) => {
+  if (!req.session.user) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+
+  try {
+    const pool = req.pool;
+    const { type = 'all', device, startDate, endDate, limit = 100 } = req.query;
+
+    let pendingIncidents = [];
+    let verifiedIncidents = [];
+
+    // Get pending incidents (from sensor data that haven't been verified)
+    if (type === 'all' || type === 'pending') {
+      let pendingQuery = `
+        SELECT 
+          m as device_id,
+          timestamp_window as timestamp,
+          max_alert_level as alert_level,
+          avg_fa as flame_value,
+          avg_sa as smoke_value,
+          avg_ta as temp_value
+        FROM sensor_data_hourly
+        WHERE max_alert_level > 0
+        AND NOT EXISTS (
+          SELECT 1 FROM verified_incidents vi
+          WHERE vi.device_id = sensor_data_hourly.m
+          AND ABS(EXTRACT(EPOCH FROM (vi.timestamp - sensor_data_hourly.timestamp_window))) < 3600
+        )
+      `;
+      const pendingParams = [];
+      let paramCount = 1;
+
+      if (device) {
+        pendingQuery += ` AND m = $${paramCount}`;
+        pendingParams.push(device);
+        paramCount++;
+      }
+      if (startDate) {
+        pendingQuery += ` AND timestamp_window >= $${paramCount}`;
+        pendingParams.push(startDate);
+        paramCount++;
+      }
+      if (endDate) {
+        pendingQuery += ` AND timestamp_window <= $${paramCount}`;
+        pendingParams.push(endDate);
+        paramCount++;
+      }
+
+      pendingQuery += ` ORDER BY timestamp_window DESC LIMIT $${paramCount}`;
+      pendingParams.push(parseInt(limit));
+
+      const pendingResult = await pool.query(pendingQuery, pendingParams);
+      pendingIncidents = pendingResult.rows;
+    }
+
+    // Get verified incidents
+    if (type === 'all' || type === 'verified') {
+      let verifiedQuery = `
+        SELECT 
+          vi.*,
+          u.username as verified_by_username
+        FROM verified_incidents vi
+        LEFT JOIN users u ON vi.verified_by = u.id
+        WHERE 1=1
+      `;
+      const verifiedParams = [];
+      let paramCount = 1;
+
+      if (device) {
+        verifiedQuery += ` AND vi.device_id = $${paramCount}`;
+        verifiedParams.push(device);
+        paramCount++;
+      }
+      if (startDate) {
+        verifiedQuery += ` AND vi.timestamp >= $${paramCount}`;
+        verifiedParams.push(startDate);
+        paramCount++;
+      }
+      if (endDate) {
+        verifiedQuery += ` AND vi.timestamp <= $${paramCount}`;
+        verifiedParams.push(endDate);
+        paramCount++;
+      }
+
+      verifiedQuery += ` ORDER BY vi.verified_at DESC LIMIT $${paramCount}`;
+      verifiedParams.push(parseInt(limit));
+
+      const verifiedResult = await pool.query(verifiedQuery, verifiedParams);
+      verifiedIncidents = verifiedResult.rows;
+    }
+
+    res.json({
+      pending: pendingIncidents,
+      verified: verifiedIncidents
+    });
+  } catch (err) {
+    console.error("Error fetching incidents:", err);
+    res.status(500).json({ error: "Error fetching incidents" });
+  }
+});
+
+// POST verify incident
+router.post("/incidents/verify", async (req, res) => {
+  // Check if user is authenticated and is admin
+  if (!req.session.user || req.session.user.role !== 'admin') {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+
+  const { device_id, timestamp, alert_level, flame_value, smoke_value, temp_value, notes } = req.body;
+
+  if (!device_id || !timestamp || alert_level === undefined) {
+    return res.status(400).json({ error: "Device ID, timestamp, and alert level are required" });
+  }
+
+  try {
+    const result = await req.pool.query(
+      `INSERT INTO verified_incidents 
+       (device_id, timestamp, alert_level, flame_value, smoke_value, temp_value, verified_by, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [device_id, timestamp, alert_level, flame_value || null, smoke_value || null, temp_value || null, req.session.user.id, notes || null]
+    );
+
+    res.json({ success: true, incident: result.rows[0] });
+  } catch (err) {
+    console.error("Error verifying incident:", err);
+    res.status(500).json({ error: "Error verifying incident" });
+  }
+});
+
+// ====== USER APPROVAL SYSTEM ======
+
+// GET pending users
+router.get("/users/pending", async (req, res) => {
+  // Check if user is authenticated and is admin
+  if (!req.session.user || req.session.user.role !== 'admin') {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+
+  try {
+    const result = await req.pool.query(
+      "SELECT id, username, email, role, created_at, status FROM users WHERE status = 'pending' ORDER BY created_at DESC"
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching pending users:", err);
+    res.status(500).json({ error: "Error fetching pending users" });
+  }
+});
+
+// POST approve user
+router.post("/users/approve", async (req, res) => {
+  // Check if user is authenticated and is admin
+  if (!req.session.user || req.session.user.role !== 'admin') {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+
+  const { userId } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ error: "User ID is required" });
+  }
+
+  try {
+    const result = await req.pool.query(
+      "UPDATE users SET status = 'approved' WHERE id = $1 RETURNING id, username, email, role, status",
+      [userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json({ success: true, user: result.rows[0] });
+  } catch (err) {
+    console.error("Error approving user:", err);
+    res.status(500).json({ error: "Error approving user" });
+  }
+});
+
+// POST reject user
+router.post("/users/reject", async (req, res) => {
+  // Check if user is authenticated and is admin
+  if (!req.session.user || req.session.user.role !== 'admin') {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+
+  const { userId } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ error: "User ID is required" });
+  }
+
+  try {
+    const result = await req.pool.query(
+      "UPDATE users SET status = 'rejected' WHERE id = $1 RETURNING id, username, email, role, status",
+      [userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json({ success: true, user: result.rows[0] });
+  } catch (err) {
+    console.error("Error rejecting user:", err);
+    res.status(500).json({ error: "Error rejecting user" });
   }
 });
 

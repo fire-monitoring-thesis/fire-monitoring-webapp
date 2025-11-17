@@ -325,6 +325,33 @@
       </div>
     </div>
 
+    <!-- Pending User Approvals Section (Admin Only) -->
+    <div class="settings-section" id="pending-approvals-section" style="display: none;">
+      <div class="section-header">
+        <h2 class="section-title">⏳ Pending User Approvals</h2>
+        <span class="status-badge warning" id="pending-count-badge" style="display: none;">0 Pending</span>
+      </div>
+      
+      <div id="pending-users-table-container">
+        <table class="users-table">
+          <thead>
+            <tr>
+              <th>👤 Username</th>
+              <th>📧 Email</th>
+              <th>🏷️ Role</th>
+              <th>📅 Created</th>
+              <th>⚙️ Actions</th>
+            </tr>
+          </thead>
+          <tbody id="pending-users-tbody">
+            <tr>
+              <td colspan="5" class="no-users">Loading pending users...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- User Management Section -->
     <div class="settings-section">
       <div class="section-header">
@@ -467,8 +494,10 @@
         if (sessionData.role === 'admin') {
           document.getElementById('addUserBtn').style.display = 'flex';
           document.getElementById('actions-header').style.display = 'table-cell';
+          document.getElementById('pending-approvals-section').style.display = 'block';
           setupAdminFunctionality();
           loadAllUsers(); // Only admins can view all users
+          loadPendingUsers(); // Load pending user approvals
         } else {
           document.getElementById('permission-notice').style.display = 'flex';
           document.getElementById('users-tbody').innerHTML = '<tr><td colspan="5" class="no-users">👮‍♂️ Admin access required to view user list</td></tr>';
@@ -497,6 +526,125 @@
       } catch (error) {
         console.error('Error loading users:', error);
         document.getElementById('users-tbody').innerHTML = '<tr><td colspan="5" class="no-users">❌ Error loading users</td></tr>';
+      }
+    }
+
+    // Load pending users for approval
+    async function loadPendingUsers() {
+      try {
+        const response = await fetch('/api/users/pending', { credentials: 'include' });
+        
+        if (!response.ok) {
+          if (response.status === 403) {
+            return;
+          }
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const pendingUsers = await response.json();
+        renderPendingUsersTable(pendingUsers);
+        
+        // Update pending count badge
+        const badge = document.getElementById('pending-count-badge');
+        if (pendingUsers.length > 0) {
+          badge.textContent = `${pendingUsers.length} Pending`;
+          badge.style.display = 'inline-block';
+        } else {
+          badge.style.display = 'none';
+        }
+      } catch (error) {
+        console.error('Error loading pending users:', error);
+        document.getElementById('pending-users-tbody').innerHTML = '<tr><td colspan="5" class="no-users">❌ Error loading pending users</td></tr>';
+      }
+    }
+
+    // Render pending users table
+    function renderPendingUsersTable(pendingUsers) {
+      const tbody = document.getElementById('pending-users-tbody');
+      
+      if (pendingUsers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="no-users">✅ No pending user approvals</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = pendingUsers.map(user => {
+        const createdDate = new Date(user.created_at).toLocaleDateString();
+        const roleBadgeClass = user.role === 'admin' ? 'role-admin' : 'role-responder';
+        const roleIcon = user.role === 'admin' ? '👑' : '🚒';
+        
+        return `
+          <tr>
+            <td>${user.username}</td>
+            <td>${user.email}</td>
+            <td><span class="role-badge ${roleBadgeClass}">${roleIcon} ${user.role}</span></td>
+            <td>${createdDate}</td>
+            <td>
+              <button class="action-btn" style="background: #22c55e; color: white; margin-right: 8px;" onclick="approveUser(${user.id}, '${user.username}')">
+                ✅ Approve
+              </button>
+              <button class="action-btn btn-delete" onclick="rejectUser(${user.id}, '${user.username}')">
+                ❌ Reject
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Approve user
+    async function approveUser(userId, username) {
+      if (!confirm(`Are you sure you want to approve user "${username}"?`)) {
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/users/approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ userId })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to approve user');
+        }
+
+        showSuccess(`✅ User "${username}" has been approved!`);
+        loadPendingUsers(); // Refresh pending users list
+        loadAllUsers(); // Refresh all users list
+      } catch (error) {
+        console.error('Error approving user:', error);
+        alert('Error: ' + error.message);
+      }
+    }
+
+    // Reject user
+    async function rejectUser(userId, username) {
+      if (!confirm(`Are you sure you want to reject user "${username}"? This action cannot be undone.`)) {
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/users/reject', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ userId })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to reject user');
+        }
+
+        showSuccess(`❌ User "${username}" has been rejected.`);
+        loadPendingUsers(); // Refresh pending users list
+      } catch (error) {
+        console.error('Error rejecting user:', error);
+        alert('Error: ' + error.message);
       }
     }
 

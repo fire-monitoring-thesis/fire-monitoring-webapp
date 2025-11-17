@@ -20,13 +20,14 @@ router.post('/signup', async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Set status as 'pending' by default - requires admin approval
     await pool.query(
-      `INSERT INTO users (username, email, password, role, created_at)
-       VALUES ($1, $2, $3, $4, NOW())`,
+      `INSERT INTO users (username, email, password, role, status, created_at)
+       VALUES ($1, $2, $3, $4, 'pending', NOW())`,
       [username, email, hashedPassword, role || 'responder']
     );
 
-    return res.redirect('/login.html?message=signedup');
+    return res.redirect('/login.html?message=pending');
   } catch (err) {
     console.error('Signup error:', err);
     return res.redirect('/signup.html?message=server');
@@ -58,6 +59,15 @@ router.post('/login', async (req, res) => {
     }
 
     const user = result.rows[0];
+
+    // Check user status - only allow approved users to login
+    if (!user.status || user.status === 'pending') {
+      return res.redirect('/login.html?message=pending');
+    }
+
+    if (user.status === 'rejected') {
+      return res.redirect('/login.html?message=rejected');
+    }
 
     req.session.user = {
       id: user.id,

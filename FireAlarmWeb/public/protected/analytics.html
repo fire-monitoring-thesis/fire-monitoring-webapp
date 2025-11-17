@@ -19,6 +19,9 @@
       <button data-range="hourly" class="active">Hourly</button>
       <button data-range="daily">Daily</button>
       <button data-range="weekly">Weekly</button>
+
+
+
       <button data-range="monthly">Monthly</button>
       <button data-range="yearly">Yearly</button>
     </div>
@@ -65,12 +68,21 @@
     // Fetch analytics data
     async function fetchAnalytics(range = 'daily', device = '') {
       try {
-        const url = `/api/analytics?range=${range}` + (device ? `&m=${device}` : '');
+        const url = `/api/analytics?range=${range}` + (device ? `&m=${encodeURIComponent(device)}` : '');
+        console.log('Fetching analytics from:', url);
+        
         const res = await fetch(url);
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        
         const data = await res.json();
+        console.log(`Analytics data received: ${data.rows?.length || 0} rows for range: ${range}, device: ${device || 'all'}`);
+        
         return data.rows || [];
       } catch (err) {
         console.error('Error fetching analytics:', err);
+        alert(`Failed to load analytics data: ${err.message}`);
         return [];
       }
     }
@@ -78,9 +90,22 @@
     // Fetch devices for dropdown
     async function fetchDevices() {
       try {
-        const res = await fetch('/api/devices');
+        const res = await fetch('/api/analytics/devices');
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
         const data = await res.json();
-        return data.devices || [];
+        console.log('Devices fetched:', data);
+        
+        // Handle both array format and object with devices property
+        if (Array.isArray(data)) {
+          return data;
+        } else if (data.devices && Array.isArray(data.devices)) {
+          return data.devices;
+        } else {
+          console.warn('Unexpected device data format:', data);
+          return [];
+        }
       } catch (err) {
         console.error('Error fetching devices:', err);
         return [];
@@ -95,14 +120,22 @@
 
     // Update KPI cards
     function updateKPI(data) {
+      if (!data || data.length === 0) {
+        totalAlertsEl.textContent = '0';
+        activeDevicesEl.textContent = '0';
+        maxAlertLevelEl.textContent = '0';
+        return;
+      }
+
       let totalAlerts = 0;
       let maxAlert = 0;
       const devices = new Set();
 
       data.forEach(row => {
         if (row.m) devices.add(row.m);
-        if (row.max_alert_level) maxAlert = Math.max(maxAlert, row.max_alert_level);
-        if (row.max_alert_level > 0) totalAlerts++;
+        const alertLevel = parseInt(row.max_alert_level) || 0;
+        maxAlert = Math.max(maxAlert, alertLevel);
+        if (alertLevel > 0) totalAlerts++;
       });
 
       totalAlertsEl.textContent = totalAlerts;
@@ -112,31 +145,84 @@
 
     // Render Chart.js line chart
     function renderChart(data) {
-      const labels = data.map(r => formatTimestamp(r.timestamp_window));
-      const flame = data.map(r => r.avg_fa || 0);
-      const smoke = data.map(r => r.avg_sa || 0);
-      const temperature = data.map(r => r.avg_ta || 0);
+      if (!data || data.length === 0) {
+        console.warn('No data to render chart');
+        if (sensorChart) {
+          sensorChart.destroy();
+          sensorChart = null;
+        }
+        return;
+      }
 
-      const ctx = document.getElementById('sensorChart').getContext('2d');
+      const labels = data.map(r => formatTimestamp(r.timestamp_window));
+      const flame = data.map(r => parseFloat(r.avg_fa) || 0);
+      const smoke = data.map(r => parseFloat(r.avg_sa) || 0);
+      const temperature = data.map(r => parseFloat(r.avg_ta) || 0);
+
+      const ctx = document.getElementById('sensorChart');
+      if (!ctx) {
+        console.error('Chart canvas not found');
+        return;
+      }
+
       if (sensorChart) sensorChart.destroy();
 
-      sensorChart = new Chart(ctx, {
+      sensorChart = new Chart(ctx.getContext('2d'), {
         type: 'line',
         data: {
           labels,
           datasets: [
-            { label: 'Flame', data: flame, borderColor: '#EF4444', fill: false, tension: 0.2 },
-            { label: 'Smoke', data: smoke, borderColor: '#F59E0B', fill: false, tension: 0.2 },
-            { label: 'Temperature', data: temperature, borderColor: '#3B82F6', fill: false, tension: 0.2 }
+            { 
+              label: 'Flame', 
+              data: flame, 
+              borderColor: '#EF4444', 
+              backgroundColor: 'rgba(239, 68, 68, 0.1)',
+              fill: false, 
+              tension: 0.2 
+            },
+            { 
+              label: 'Smoke', 
+              data: smoke, 
+              borderColor: '#F59E0B', 
+              backgroundColor: 'rgba(245, 158, 11, 0.1)',
+              fill: false, 
+              tension: 0.2 
+            },
+            { 
+              label: 'Temperature', 
+              data: temperature, 
+              borderColor: '#3B82F6', 
+              backgroundColor: 'rgba(59, 130, 246, 0.1)',
+              fill: false, 
+              tension: 0.2 
+            }
           ]
         },
         options: {
           responsive: true,
-          plugins: { legend: { position: 'top' } },
+          maintainAspectRatio: true,
+          plugins: { 
+            legend: { position: 'top' },
+            tooltip: {
+              mode: 'index',
+              intersect: false
+            }
+          },
           interaction: { mode: 'index', intersect: false },
           scales: {
-            x: { display: true, title: { display: true, text: 'Time' } },
-            y: { display: true, title: { display: true, text: 'Sensor Value' } }
+            x: { 
+              display: true, 
+              title: { display: true, text: 'Time' },
+              ticks: {
+                maxRotation: 45,
+                minRotation: 0
+              }
+            },
+            y: { 
+              display: true, 
+              title: { display: true, text: 'Sensor Value' },
+              beginAtZero: true
+            }
           }
         }
       });
@@ -144,53 +230,121 @@
 
     // Load analytics with selected range and device
     async function loadAnalytics(range = 'daily', device = '') {
-      document.querySelectorAll('.time-filters button').forEach(btn => btn.classList.remove('active'));
-      document.querySelector(`.time-filters button[data-range="${range}"]`)?.classList.add('active');
+      try {
+        // Update active button
+        document.querySelectorAll('.time-filters button').forEach(btn => btn.classList.remove('active'));
+        const activeBtn = document.querySelector(`.time-filters button[data-range="${range}"]`);
+        if (activeBtn) {
+          activeBtn.classList.add('active');
+        }
 
-      const data = await fetchAnalytics(range, device);
-      updateKPI(data);
-      renderChart(data);
+        // Show loading state
+        const chartContainer = document.querySelector('.chart-container');
+        if (chartContainer) {
+          chartContainer.style.opacity = '0.6';
+        }
+
+        const data = await fetchAnalytics(range, device);
+        
+        if (data && data.length > 0) {
+          updateKPI(data);
+          renderChart(data);
+        } else {
+          // Show empty state
+          const ctx = document.getElementById('sensorChart');
+          if (ctx) {
+            if (sensorChart) sensorChart.destroy();
+            ctx.getContext('2d').clearRect(0, 0, ctx.width, ctx.height);
+          }
+          totalAlertsEl.textContent = '0';
+          activeDevicesEl.textContent = '0';
+          maxAlertLevelEl.textContent = '0';
+        }
+
+        // Restore opacity
+        if (chartContainer) {
+          chartContainer.style.opacity = '1';
+        }
+      } catch (err) {
+        console.error('Error loading analytics:', err);
+        alert('Failed to load analytics data. Please try again.');
+      }
     }
 
     // Initialize device dropdown
     async function initDevices() {
-      const devices = await fetchDevices();
-      devices.forEach(d => {
-        const opt = document.createElement('option');
-        opt.value = d.m;
-        opt.textContent = d.m;
-        deviceSelect.appendChild(opt);
-      });
+      try {
+        const devices = await fetchDevices();
+        
+        // Clear existing options except "All Devices"
+        deviceSelect.innerHTML = '<option value="">All Devices</option>';
+        
+        if (devices && devices.length > 0) {
+          devices.forEach(d => {
+            const opt = document.createElement('option');
+            // Handle both {m: "device_id"} and direct string formats
+            const deviceId = typeof d === 'string' ? d : (d.m || d.device_id || d);
+            opt.value = deviceId;
+            opt.textContent = deviceId;
+            deviceSelect.appendChild(opt);
+          });
+          console.log(`Loaded ${devices.length} devices into dropdown`);
+        } else {
+          console.warn('No devices found');
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = 'No devices available';
+          opt.disabled = true;
+          deviceSelect.appendChild(opt);
+        }
 
-      deviceSelect.addEventListener('change', () => {
-        const selectedDevice = deviceSelect.value;
-        const activeRange = document.querySelector('.time-filters button.active').dataset.range;
-        loadAnalytics(activeRange, selectedDevice);
-      });
+        // Add change event listener for device selection
+        deviceSelect.addEventListener('change', () => {
+          const selectedDevice = deviceSelect.value;
+          const activeRangeBtn = document.querySelector('.time-filters button.active');
+          const activeRange = activeRangeBtn ? activeRangeBtn.dataset.range : 'daily';
+          loadAnalytics(activeRange, selectedDevice);
+        });
+      } catch (err) {
+        console.error('Error initializing devices:', err);
+      }
     }
 
     // Initialize page
-    document.addEventListener('DOMContentLoaded', () => {
-      initDevices();
-      loadAnalytics('daily');
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Initialize devices first
+      await initDevices();
+      
+      // Load initial analytics data
+      await loadAnalytics('daily');
+
+      // Add event listeners for time filter buttons (hourly, daily, weekly, monthly, yearly)
+      document.querySelectorAll('.time-filters button').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          const range = btn.dataset.range;
+          const selectedDevice = deviceSelect.value;
+          loadAnalytics(range, selectedDevice);
+        });
+      });
 
       // Sidebar toggle logic
       setTimeout(() => {
         const toggleBtn = document.getElementById('toggleBtn');
-        const sidebar = document.getElementById('sidebar-container'); // updated
+        const sidebar = document.getElementById('sidebar-container');
         const main = document.getElementById('main-content');
         if (toggleBtn && sidebar && main) {
           let sidebarVisible = true;
-          toggleBtn.style.left = '210px';
+          toggleBtn.style.left = '280px';
           toggleBtn.addEventListener('click', () => {
             if (sidebarVisible) {
-              sidebar.style.transform = 'translateX(-200px)';
+              sidebar.style.transform = 'translateX(-260px)';
               main.style.marginLeft = '0';
               toggleBtn.style.left = '1rem';
             } else {
               sidebar.style.transform = 'translateX(0)';
-              main.style.marginLeft = '200px';
-              toggleBtn.style.left = '210px';
+              main.style.marginLeft = '260px';
+              toggleBtn.style.left = '280px';
             }
             sidebarVisible = !sidebarVisible;
           });

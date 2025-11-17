@@ -49,17 +49,17 @@
 
         if (toggleBtn && sidebar && main) {
           let sidebarVisible = true;
-          toggleBtn.style.left = '210px';
+          toggleBtn.style.left = '280px';
 
           toggleBtn.addEventListener('click', () => {
             if (sidebarVisible) {
-              sidebar.style.transform = 'translateX(-200px)';
+              sidebar.style.transform = 'translateX(-260px)';
               main.style.marginLeft = '0';
               toggleBtn.style.left = '1rem';
             } else {
               sidebar.style.transform = 'translateX(0)';
-              main.style.marginLeft = '200px';
-              toggleBtn.style.left = '210px';
+              main.style.marginLeft = '260px';
+              toggleBtn.style.left = '280px';
             }
             sidebarVisible = !sidebarVisible;
           });
