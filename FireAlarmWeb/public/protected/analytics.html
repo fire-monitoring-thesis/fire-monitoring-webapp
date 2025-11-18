@@ -6,6 +6,17 @@
   <link rel="stylesheet" href="/styles/style.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+  <style>
+    body { font-family: 'Inter', sans-serif; background: #f5f5f5; margin:0; padding:0; }
+    main { padding: 2rem; }
+    .chart-block { background: #fff; padding: 1rem; margin-bottom: 2rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    canvas { max-height: 400px; }
+    .kpi-container { display: flex; gap: 1rem; margin: 1rem 0; flex-wrap: wrap; }
+    .kpi-card { flex: 1 1 150px; background:#fff; padding:1rem; border-radius:12px; text-align:center; box-shadow:0 2px 8px rgba(0,0,0,0.1); }
+    .kpi-card h3 { margin-bottom:0.5rem; font-weight:600; }
+    .device-select { margin:1rem 0; }
+  </style>
 </head>
 <body>
   <button id="toggleBtn"></button>
@@ -14,19 +25,6 @@
   <main id="main-content">
     <h1>📊 Analytics & Reports</h1>
 
-    <!-- Time Filters -->
-    <div class="time-filters">
-      <button data-range="hourly" class="active">Hourly</button>
-      <button data-range="daily">Daily</button>
-      <button data-range="weekly">Weekly</button>
-
-
-
-      <button data-range="monthly">Monthly</button>
-      <button data-range="yearly">Yearly</button>
-    </div>
-
-    <!-- Device Lookup -->
     <div class="device-select">
       <label for="deviceId">Select Device:</label>
       <select id="deviceId">
@@ -34,323 +32,182 @@
       </select>
     </div>
 
-    <!-- KPI Cards -->
     <div class="kpi-container">
-      <div class="kpi-card">
-        <h3>Total Alerts</h3>
-        <p id="total-alerts">0</p>
-      </div>
-      <div class="kpi-card">
-        <h3>Active Devices</h3>
-        <p id="active-devices">0</p>
-      </div>
-      <div class="kpi-card">
-        <h3>Max Alert Level</h3>
-        <p id="max-alert-level">0</p>
-      </div>
+      <div class="kpi-card"><h3>Total Alerts</h3><p id="total-alerts">0</p></div>
+      <div class="kpi-card"><h3>Active Devices</h3><p id="active-devices">0</p></div>
+      <div class="kpi-card"><h3>Max Alert Level</h3><p id="max-alert-level">0</p></div>
     </div>
 
-    <!-- Chart -->
-    <div class="chart-container">
-      <canvas id="sensorChart"></canvas>
+    <div id="charts-container">
+      <div class="chart-block"><h2>Hourly (Last 24h)</h2><canvas id="chart-hourly"></canvas></div>
+      <div class="chart-block"><h2>Daily</h2><canvas id="chart-daily"></canvas></div>
+      <div class="chart-block"><h2>Weekly</h2><canvas id="chart-weekly"></canvas></div>
+      <div class="chart-block"><h2>Monthly</h2><canvas id="chart-monthly"></canvas></div>
+      <div class="chart-block"><h2>Yearly</h2><canvas id="chart-yearly"></canvas></div>
     </div>
   </main>
 
-  <script src="/protected/script.js"></script>
+<script>
+const totalAlertsEl = document.getElementById('total-alerts');
+const activeDevicesEl = document.getElementById('active-devices');
+const maxAlertLevelEl = document.getElementById('max-alert-level');
+const deviceSelect = document.getElementById('deviceId');
 
-  <script>
-    let sensorChart;
-    const totalAlertsEl = document.getElementById('total-alerts');
-    const activeDevicesEl = document.getElementById('active-devices');
-    const maxAlertLevelEl = document.getElementById('max-alert-level');
-    const deviceSelect = document.getElementById('deviceId');
+const chartIds = ['hourly', 'daily', 'weekly', 'monthly', 'yearly'];
+const charts = {};
 
-    // Fetch analytics data
-    async function fetchAnalytics(range = 'daily', device = '') {
-      try {
-        const url = `/api/analytics?range=${range}` + (device ? `&m=${encodeURIComponent(device)}` : '');
-        console.log('Fetching analytics from:', url);
-        
-        const res = await fetch(url);
-        if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`);
+// Fetch analytics data
+async function fetchAnalytics(range='daily', device='') {
+  try {
+    let url = '';
+    if(range==='hourly') url = `/api/analytics/hourly`;
+    else url = `/api/analytics?range=${range}`;
+    if(device) url += `&m=${encodeURIComponent(device)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+    const data = await res.json();
+    return data.rows || [];
+  } catch(err) {
+    console.error(err);
+    return [];
+  }
+}
+
+// Fetch devices list
+async function fetchDevices() {
+  try {
+    const res = await fetch('/api/analytics/devices');
+    const data = await res.json();
+    if (Array.isArray(data)) return data;
+    if (data.devices && Array.isArray(data.devices)) return data.devices;
+    return [];
+  } catch(err){ console.error(err); return [];}
+}
+
+// Update KPI cards
+function updateKPI(data){
+  if(!data || data.length===0){
+    totalAlertsEl.textContent='0';
+    activeDevicesEl.textContent='0';
+    maxAlertLevelEl.textContent='0';
+    return;
+  }
+  let totalAlerts=0, maxAlert=0;
+  const devices = new Set();
+  data.forEach(row=>{
+    if(row.m) devices.add(row.m);
+    const alertLevel=parseInt(row.max_alert_level)||0;
+    maxAlert=Math.max(maxAlert,alertLevel);
+    if(alertLevel>0) totalAlerts++;
+  });
+  totalAlertsEl.textContent=totalAlerts;
+  activeDevicesEl.textContent=devices.size;
+  maxAlertLevelEl.textContent=maxAlert;
+}
+
+// Format labels based on range
+function formatLabels(data, range){
+  return data.map(r=>{
+    const dt = new Date(r.timestamp_window);
+    switch(range){
+      case 'hourly': return dt.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      case 'daily': return dt.toLocaleDateString([], {month:'short', day:'numeric'});
+      case 'weekly': return `W${getWeekNumber(dt)}-${dt.getFullYear()}`;
+      case 'monthly': return dt.toLocaleDateString([], {month:'short', year:'numeric'});
+      case 'yearly': return dt.getFullYear();
+      default: return dt.toLocaleString();
+    }
+  });
+}
+
+// Helper: Get ISO week number
+function getWeekNumber(d){
+  const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dayNum = date.getDay() || 7;
+  date.setDate(date.getDate() + 4 - dayNum);
+  const yearStart = new Date(date.getFullYear(),0,1);
+  return Math.ceil((((date - yearStart)/86400000) + 1)/7);
+}
+
+// Render a chart
+function renderChart(canvasId, data, range){
+  const ctx=document.getElementById(canvasId);
+  if(!ctx) return;
+
+  const labels = formatLabels(data, range);
+  const flame = data.map(r=>parseFloat(r.avg_fa)||0);
+  const smoke = data.map(r=>parseFloat(r.avg_sa)||0);
+  const temperature = data.map(r=>parseFloat(r.avg_ta)||0);
+
+  if(charts[canvasId]) charts[canvasId].destroy();
+
+  charts[canvasId]=new Chart(ctx.getContext('2d'),{
+    type:'line',
+    data:{ labels, datasets:[
+      { label:'Flame', data:flame, borderColor:'#EF4444', backgroundColor:'rgba(239,68,68,0.2)', fill:true, tension:0.3, pointRadius:2 },
+      { label:'Smoke', data:smoke, borderColor:'#F59E0B', backgroundColor:'rgba(245,158,11,0.2)', fill:true, tension:0.3, pointRadius:2 },
+      { label:'Temperature', data:temperature, borderColor:'#3B82F6', backgroundColor:'rgba(59,130,246,0.2)', fill:true, tension:0.3, pointRadius:2 }
+    ]},
+    options:{
+      responsive:true,
+      plugins:{
+        legend:{ position:'top' },
+        tooltip:{ mode:'index', intersect:false },
+        zoom:{ 
+          pan:{ enabled:true, mode:'x' },
+          zoom:{ enabled:true, mode:'x' }
         }
-        
-        const data = await res.json();
-        console.log(`Analytics data received: ${data.rows?.length || 0} rows for range: ${range}, device: ${device || 'all'}`);
-        
-        return data.rows || [];
-      } catch (err) {
-        console.error('Error fetching analytics:', err);
-        alert(`Failed to load analytics data: ${err.message}`);
-        return [];
+      },
+      interaction:{ mode:'index', intersect:false },
+      scales:{
+        x:{ display:true, title:{ display:true, text:'Time' } },
+        y:{ display:true, title:{ display:true, text:'Sensor Value' }, beginAtZero:true }
       }
     }
+  });
+}
 
-    // Fetch devices for dropdown
-    async function fetchDevices() {
-      try {
-        const res = await fetch('/api/analytics/devices');
-        if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`);
-        }
-        const data = await res.json();
-        console.log('Devices fetched:', data);
-        
-        // Handle both array format and object with devices property
-        if (Array.isArray(data)) {
-          return data;
-        } else if (data.devices && Array.isArray(data.devices)) {
-          return data.devices;
-        } else {
-          console.warn('Unexpected device data format:', data);
-          return [];
-        }
-      } catch (err) {
-        console.error('Error fetching devices:', err);
-        return [];
-      }
-    }
+// Load all charts
+async function loadAllCharts(device=''){
+  for(const range of chartIds){
+    const data = await fetchAnalytics(range, device);
+    renderChart(`chart-${range}`, data, range);
+    if(range==='daily') updateKPI(data);
+  }
+}
 
-    // Format timestamps for chart
-    function formatTimestamp(ts) {
-      const d = new Date(ts);
-      return d.toLocaleString();
-    }
+// Initialize devices dropdown
+async function initDevices(){
+  const devices = await fetchDevices();
+  deviceSelect.innerHTML='<option value="">All Devices</option>';
+  devices.forEach(d=>{
+    const deviceId = typeof d==='string'?d:(d.m||d.device_id||d);
+    const opt=document.createElement('option');
+    opt.value=deviceId; opt.textContent=deviceId;
+    deviceSelect.appendChild(opt);
+  });
+  deviceSelect.addEventListener('change',()=>loadAllCharts(deviceSelect.value));
+}
 
-    // Update KPI cards
-    function updateKPI(data) {
-      if (!data || data.length === 0) {
-        totalAlertsEl.textContent = '0';
-        activeDevicesEl.textContent = '0';
-        maxAlertLevelEl.textContent = '0';
-        return;
-      }
+// Initialize page
+document.addEventListener('DOMContentLoaded', async()=>{
+  await initDevices();
+  await loadAllCharts();
 
-      let totalAlerts = 0;
-      let maxAlert = 0;
-      const devices = new Set();
-
-      data.forEach(row => {
-        if (row.m) devices.add(row.m);
-        const alertLevel = parseInt(row.max_alert_level) || 0;
-        maxAlert = Math.max(maxAlert, alertLevel);
-        if (alertLevel > 0) totalAlerts++;
-      });
-
-      totalAlertsEl.textContent = totalAlerts;
-      activeDevicesEl.textContent = devices.size;
-      maxAlertLevelEl.textContent = maxAlert;
-    }
-
-    // Render Chart.js line chart
-    function renderChart(data) {
-      if (!data || data.length === 0) {
-        console.warn('No data to render chart');
-        if (sensorChart) {
-          sensorChart.destroy();
-          sensorChart = null;
-        }
-        return;
-      }
-
-      const labels = data.map(r => formatTimestamp(r.timestamp_window));
-      const flame = data.map(r => parseFloat(r.avg_fa) || 0);
-      const smoke = data.map(r => parseFloat(r.avg_sa) || 0);
-      const temperature = data.map(r => parseFloat(r.avg_ta) || 0);
-
-      const ctx = document.getElementById('sensorChart');
-      if (!ctx) {
-        console.error('Chart canvas not found');
-        return;
-      }
-
-      if (sensorChart) sensorChart.destroy();
-
-      sensorChart = new Chart(ctx.getContext('2d'), {
-        type: 'line',
-        data: {
-          labels,
-          datasets: [
-            { 
-              label: 'Flame', 
-              data: flame, 
-              borderColor: '#EF4444', 
-              backgroundColor: 'rgba(239, 68, 68, 0.1)',
-              fill: false, 
-              tension: 0.2 
-            },
-            { 
-              label: 'Smoke', 
-              data: smoke, 
-              borderColor: '#F59E0B', 
-              backgroundColor: 'rgba(245, 158, 11, 0.1)',
-              fill: false, 
-              tension: 0.2 
-            },
-            { 
-              label: 'Temperature', 
-              data: temperature, 
-              borderColor: '#3B82F6', 
-              backgroundColor: 'rgba(59, 130, 246, 0.1)',
-              fill: false, 
-              tension: 0.2 
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: { 
-            legend: { position: 'top' },
-            tooltip: {
-              mode: 'index',
-              intersect: false
-            }
-          },
-          interaction: { mode: 'index', intersect: false },
-          scales: {
-            x: { 
-              display: true, 
-              title: { display: true, text: 'Time' },
-              ticks: {
-                maxRotation: 45,
-                minRotation: 0
-              }
-            },
-            y: { 
-              display: true, 
-              title: { display: true, text: 'Sensor Value' },
-              beginAtZero: true
-            }
-          }
-        }
-      });
-    }
-
-    // Load analytics with selected range and device
-    async function loadAnalytics(range = 'daily', device = '') {
-      try {
-        // Update active button
-        document.querySelectorAll('.time-filters button').forEach(btn => btn.classList.remove('active'));
-        const activeBtn = document.querySelector(`.time-filters button[data-range="${range}"]`);
-        if (activeBtn) {
-          activeBtn.classList.add('active');
-        }
-
-        // Show loading state
-        const chartContainer = document.querySelector('.chart-container');
-        if (chartContainer) {
-          chartContainer.style.opacity = '0.6';
-        }
-
-        const data = await fetchAnalytics(range, device);
-        
-        if (data && data.length > 0) {
-          updateKPI(data);
-          renderChart(data);
-        } else {
-          // Show empty state
-          const ctx = document.getElementById('sensorChart');
-          if (ctx) {
-            if (sensorChart) sensorChart.destroy();
-            ctx.getContext('2d').clearRect(0, 0, ctx.width, ctx.height);
-          }
-          totalAlertsEl.textContent = '0';
-          activeDevicesEl.textContent = '0';
-          maxAlertLevelEl.textContent = '0';
-        }
-
-        // Restore opacity
-        if (chartContainer) {
-          chartContainer.style.opacity = '1';
-        }
-      } catch (err) {
-        console.error('Error loading analytics:', err);
-        alert('Failed to load analytics data. Please try again.');
-      }
-    }
-
-    // Initialize device dropdown
-    async function initDevices() {
-      try {
-        const devices = await fetchDevices();
-        
-        // Clear existing options except "All Devices"
-        deviceSelect.innerHTML = '<option value="">All Devices</option>';
-        
-        if (devices && devices.length > 0) {
-          devices.forEach(d => {
-            const opt = document.createElement('option');
-            // Handle both {m: "device_id"} and direct string formats
-            const deviceId = typeof d === 'string' ? d : (d.m || d.device_id || d);
-            opt.value = deviceId;
-            opt.textContent = deviceId;
-            deviceSelect.appendChild(opt);
-          });
-          console.log(`Loaded ${devices.length} devices into dropdown`);
-        } else {
-          console.warn('No devices found');
-          const opt = document.createElement('option');
-          opt.value = '';
-          opt.textContent = 'No devices available';
-          opt.disabled = true;
-          deviceSelect.appendChild(opt);
-        }
-
-        // Add change event listener for device selection
-        deviceSelect.addEventListener('change', () => {
-          const selectedDevice = deviceSelect.value;
-          const activeRangeBtn = document.querySelector('.time-filters button.active');
-          const activeRange = activeRangeBtn ? activeRangeBtn.dataset.range : 'daily';
-          loadAnalytics(activeRange, selectedDevice);
-        });
-      } catch (err) {
-        console.error('Error initializing devices:', err);
-      }
-    }
-
-    // Initialize page
-    document.addEventListener('DOMContentLoaded', async () => {
-      // Initialize devices first
-      await initDevices();
-      
-      // Load initial analytics data
-      await loadAnalytics('daily');
-
-      // Add event listeners for time filter buttons (hourly, daily, weekly, monthly, yearly)
-      document.querySelectorAll('.time-filters button').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          e.preventDefault();
-          const range = btn.dataset.range;
-          const selectedDevice = deviceSelect.value;
-          loadAnalytics(range, selectedDevice);
-        });
-      });
-
-      // Sidebar toggle logic
-      setTimeout(() => {
-        const toggleBtn = document.getElementById('toggleBtn');
-        const sidebar = document.getElementById('sidebar-container');
-        const main = document.getElementById('main-content');
-        if (toggleBtn && sidebar && main) {
-          let sidebarVisible = true;
-          toggleBtn.style.left = '280px';
-          toggleBtn.addEventListener('click', () => {
-            if (sidebarVisible) {
-              sidebar.style.transform = 'translateX(-260px)';
-              main.style.marginLeft = '0';
-              toggleBtn.style.left = '1rem';
-            } else {
-              sidebar.style.transform = 'translateX(0)';
-              main.style.marginLeft = '260px';
-              toggleBtn.style.left = '280px';
-            }
-            sidebarVisible = !sidebarVisible;
-          });
-        }
-      }, 100);
+  // Sidebar toggle
+  const toggleBtn=document.getElementById('toggleBtn');
+  const sidebar=document.getElementById('sidebar-container');
+  const main=document.getElementById('main-content');
+  if(toggleBtn&&sidebar&&main){
+    let visible=true;
+    toggleBtn.style.left='280px';
+    toggleBtn.addEventListener('click',()=>{
+      if(visible){ sidebar.style.transform='translateX(-260px)'; main.style.marginLeft='0'; toggleBtn.style.left='1rem'; }
+      else{ sidebar.style.transform='translateX(0)'; main.style.marginLeft='260px'; toggleBtn.style.left='280px'; }
+      visible=!visible;
     });
-  </script>
+  }
+});
+</script>
 </body>
 </html>

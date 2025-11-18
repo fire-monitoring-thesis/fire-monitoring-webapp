@@ -7,7 +7,6 @@ const bcrypt = require("bcrypt");
 
 // ✅ GET all users (admin only)
 router.get("/users", async (req, res) => {
-  // Check if user is authenticated and is admin
   if (!req.session.user || req.session.user.role !== 'admin') {
     return res.status(403).json({ error: "Admin access required" });
   }
@@ -25,20 +24,17 @@ router.get("/users", async (req, res) => {
 
 // ✅ ADD a new user (admin only)
 router.post("/users", async (req, res) => {
-  // Check if user is authenticated and is admin
   if (!req.session.user || req.session.user.role !== 'admin') {
     return res.status(403).json({ error: "Admin access required" });
   }
 
   const { username, email, password, role } = req.body;
 
-  // Validate required fields
   if (!username || !email || !password || !role) {
     return res.status(400).json({ error: "All fields are required" });
   }
 
   try {
-    // Check if username or email already exists
     const existingUser = await req.pool.query(
       "SELECT id FROM users WHERE username = $1 OR email = $2",
       [username, email]
@@ -48,10 +44,8 @@ router.post("/users", async (req, res) => {
       return res.status(400).json({ error: "Username or email already exists" });
     }
 
-    // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Insert the new user - admin-created users are automatically approved
     const result = await req.pool.query(
       "INSERT INTO users (username, email, password, role, status, created_at) VALUES ($1, $2, $3, $4, 'approved', NOW()) RETURNING id, username, email, role, created_at",
       [username, email, hashedPassword, role]
@@ -66,7 +60,6 @@ router.post("/users", async (req, res) => {
 
 // ✅ UPDATE a user (admin only)
 router.put("/users/:id", async (req, res) => {
-  // Check if user is authenticated and is admin
   if (!req.session.user || req.session.user.role !== 'admin') {
     return res.status(403).json({ error: "Admin access required" });
   }
@@ -74,13 +67,11 @@ router.put("/users/:id", async (req, res) => {
   const { id } = req.params;
   const { username, email, password, role } = req.body;
 
-  // Validate required fields
   if (!username || !email || !role) {
     return res.status(400).json({ error: "Username, email, and role are required" });
   }
 
   try {
-    // Check if username or email already exists for other users
     const existingUser = await req.pool.query(
       "SELECT id FROM users WHERE (username = $1 OR email = $2) AND id != $3",
       [username, email, id]
@@ -93,12 +84,10 @@ router.put("/users/:id", async (req, res) => {
     let query, params;
 
     if (password && password.trim() !== '') {
-      // Update with new password
       const hashed = await bcrypt.hash(password, 10);
       query = "UPDATE users SET username = $1, email = $2, password = $3, role = $4 WHERE id = $5 RETURNING id, username, email, role, created_at";
       params = [username, email, hashed, role, id];
     } else {
-      // Update without changing password
       query = "UPDATE users SET username = $1, email = $2, role = $3 WHERE id = $4 RETURNING id, username, email, role, created_at";
       params = [username, email, role, id];
     }
@@ -118,7 +107,6 @@ router.put("/users/:id", async (req, res) => {
 
 // ✅ DELETE a user (admin only)
 router.delete("/users/:id", async (req, res) => {
-  // Check if user is authenticated and is admin
   if (!req.session.user || req.session.user.role !== 'admin') {
     return res.status(403).json({ error: "Admin access required" });
   }
@@ -126,7 +114,6 @@ router.delete("/users/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
-    // Prevent deleting the main admin user
     const userToDelete = await req.pool.query(
       "SELECT username, role FROM users WHERE id = $1",
       [id]
@@ -136,7 +123,6 @@ router.delete("/users/:id", async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Prevent deleting yourself
     if (parseInt(id) === req.session.user.id) {
       return res.status(400).json({ error: "Cannot delete your own account" });
     }
@@ -150,9 +136,6 @@ router.delete("/users/:id", async (req, res) => {
 });
 
 // ====== ADMIN CREDENTIAL CHECK ======
-
-// ✅ POST /verify-admin
-// Used when a user attempts an admin-only action (e.g., role change, add user)
 router.post("/verify-admin", async (req, res) => {
   const { adminEmail, adminPassword } = req.body;
 
@@ -174,17 +157,12 @@ router.post("/verify-admin", async (req, res) => {
 });
 
 // ====== DASHBOARD STATISTICS ======
-
-// GET dashboard statistics
 router.get("/dashboard/stats", async (req, res) => {
-  if (!req.session.user) {
-    return res.status(401).json({ error: "Authentication required" });
-  }
+  if (!req.session.user) return res.status(401).json({ error: "Authentication required" });
 
   try {
     const pool = req.pool;
 
-    // Active Devices - devices with data in last 10 minutes
     const activeDevicesResult = await pool.query(
       `SELECT COUNT(DISTINCT m) as count 
        FROM sensor_data_aggregated 
@@ -192,7 +170,6 @@ router.get("/dashboard/stats", async (req, res) => {
     );
     const activeDevices = parseInt(activeDevicesResult.rows[0]?.count || 0);
 
-    // Today's Alerts - incidents with alert level > 0 from today
     const alertsResult = await pool.query(
       `SELECT COUNT(*) as count 
        FROM sensor_data_daily 
@@ -201,14 +178,12 @@ router.get("/dashboard/stats", async (req, res) => {
     );
     const todayAlerts = parseInt(alertsResult.rows[0]?.count || 0);
 
-    // System Uptime - calculate from online devices vs total devices
     const totalDevicesResult = await pool.query(
       `SELECT COUNT(DISTINCT m) as count FROM sensor_data_aggregated`
     );
     const totalDevices = parseInt(totalDevicesResult.rows[0]?.count || 1);
     const uptimePercentage = totalDevices > 0 ? ((activeDevices / totalDevices) * 100).toFixed(1) : 0;
 
-    // Total Locations - use distinct device count as proxy
     const locationsResult = await pool.query(
       `SELECT COUNT(DISTINCT m) as count FROM sensor_data_aggregated`
     );
@@ -228,14 +203,11 @@ router.get("/dashboard/stats", async (req, res) => {
 
 // GET dashboard status
 router.get("/dashboard/status", async (req, res) => {
-  if (!req.session.user) {
-    return res.status(401).json({ error: "Authentication required" });
-  }
+  if (!req.session.user) return res.status(401).json({ error: "Authentication required" });
 
   try {
     const pool = req.pool;
 
-    // Get latest alert level to determine system status
     const statusResult = await pool.query(
       `SELECT MAX(max_alert_level) as max_level 
        FROM sensor_data_hourly 
@@ -244,20 +216,15 @@ router.get("/dashboard/status", async (req, res) => {
     const maxAlertLevel = parseInt(statusResult.rows[0]?.max_level || 0);
 
     let systemStatus = "Operational";
-    if (maxAlertLevel >= 3) {
-      systemStatus = "Critical";
-    } else if (maxAlertLevel > 0) {
-      systemStatus = "Warning";
-    }
+    if (maxAlertLevel >= 3) systemStatus = "Critical";
+    else if (maxAlertLevel > 0) systemStatus = "Warning";
 
-    // Get last update timestamp
     const lastUpdateResult = await pool.query(
       `SELECT MAX(timestamp_window) as last_update 
        FROM sensor_data_hourly`
     );
     const lastUpdate = lastUpdateResult.rows[0]?.last_update || new Date();
 
-    // Get device count responding
     const respondingDevicesResult = await pool.query(
       `SELECT COUNT(DISTINCT m) as count 
        FROM sensor_data_hourly 
@@ -265,7 +232,6 @@ router.get("/dashboard/status", async (req, res) => {
     );
     const respondingDevices = parseInt(respondingDevicesResult.rows[0]?.count || 0);
 
-    // Calculate time ago
     const lastUpdateTime = new Date(lastUpdate);
     const now = new Date();
     const diffMinutes = Math.floor((now - lastUpdateTime) / (1000 * 60));
@@ -286,17 +252,12 @@ router.get("/dashboard/status", async (req, res) => {
 });
 
 // ====== DEVICE STATISTICS ======
-
-// GET device statistics
 router.get("/devices/stats", async (req, res) => {
-  if (!req.session.user) {
-    return res.status(401).json({ error: "Authentication required" });
-  }
+  if (!req.session.user) return res.status(401).json({ error: "Authentication required" });
 
   try {
     const pool = req.pool;
 
-    // Online Devices - devices with data in last 10 minutes
     const onlineResult = await pool.query(
       `SELECT COUNT(DISTINCT m) as count 
        FROM sensor_data_hourly 
@@ -304,14 +265,12 @@ router.get("/devices/stats", async (req, res) => {
     );
     const onlineDevices = parseInt(onlineResult.rows[0]?.count || 0);
 
-    // Total Devices
     const totalResult = await pool.query(
       `SELECT COUNT(DISTINCT m) as count FROM sensor_data_aggregated`
     );
     const totalDevices = parseInt(totalResult.rows[0]?.count || 0);
     const offlineDevices = totalDevices - onlineDevices;
 
-    // Warning Status - devices with alert level > 0
     const warningResult = await pool.query(
       `SELECT COUNT(DISTINCT m) as count 
        FROM sensor_data_hourly 
@@ -320,7 +279,6 @@ router.get("/devices/stats", async (req, res) => {
     );
     const warningStatus = parseInt(warningResult.rows[0]?.count || 0);
 
-    // Total Locations
     const locationsResult = await pool.query(
       `SELECT COUNT(DISTINCT m) as count FROM sensor_data_aggregated`
     );
@@ -339,12 +297,8 @@ router.get("/devices/stats", async (req, res) => {
 });
 
 // ====== INCIDENTS ======
-
-// GET incidents (pending and verified)
 router.get("/incidents", async (req, res) => {
-  if (!req.session.user) {
-    return res.status(401).json({ error: "Authentication required" });
-  }
+  if (!req.session.user) return res.status(401).json({ error: "Authentication required" });
 
   try {
     const pool = req.pool;
@@ -353,7 +307,6 @@ router.get("/incidents", async (req, res) => {
     let pendingIncidents = [];
     let verifiedIncidents = [];
 
-    // Get pending incidents (from sensor data that haven't been verified)
     if (type === 'all' || type === 'pending') {
       let pendingQuery = `
         SELECT 
@@ -397,7 +350,6 @@ router.get("/incidents", async (req, res) => {
       pendingIncidents = pendingResult.rows;
     }
 
-    // Get verified incidents
     if (type === 'all' || type === 'verified') {
       let verifiedQuery = `
         SELECT 
@@ -445,10 +397,7 @@ router.get("/incidents", async (req, res) => {
 
 // POST verify incident
 router.post("/incidents/verify", async (req, res) => {
-  // Check if user is authenticated and is admin
-  if (!req.session.user || req.session.user.role !== 'admin') {
-    return res.status(403).json({ error: "Admin access required" });
-  }
+  if (!req.session.user || req.session.user.role !== 'admin') return res.status(403).json({ error: "Admin access required" });
 
   const { device_id, timestamp, alert_level, flame_value, smoke_value, temp_value, notes } = req.body;
 
@@ -473,13 +422,8 @@ router.post("/incidents/verify", async (req, res) => {
 });
 
 // ====== USER APPROVAL SYSTEM ======
-
-// GET pending users
 router.get("/users/pending", async (req, res) => {
-  // Check if user is authenticated and is admin
-  if (!req.session.user || req.session.user.role !== 'admin') {
-    return res.status(403).json({ error: "Admin access required" });
-  }
+  if (!req.session.user || req.session.user.role !== 'admin') return res.status(403).json({ error: "Admin access required" });
 
   try {
     const result = await req.pool.query(
@@ -492,18 +436,11 @@ router.get("/users/pending", async (req, res) => {
   }
 });
 
-// POST approve user
 router.post("/users/approve", async (req, res) => {
-  // Check if user is authenticated and is admin
-  if (!req.session.user || req.session.user.role !== 'admin') {
-    return res.status(403).json({ error: "Admin access required" });
-  }
+  if (!req.session.user || req.session.user.role !== 'admin') return res.status(403).json({ error: "Admin access required" });
 
   const { userId } = req.body;
-
-  if (!userId) {
-    return res.status(400).json({ error: "User ID is required" });
-  }
+  if (!userId) return res.status(400).json({ error: "User ID is required" });
 
   try {
     const result = await req.pool.query(
@@ -511,9 +448,7 @@ router.post("/users/approve", async (req, res) => {
       [userId]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "User not found" });
-    }
+    if (result.rows.length === 0) return res.status(404).json({ error: "User not found" });
 
     res.json({ success: true, user: result.rows[0] });
   } catch (err) {
@@ -522,18 +457,11 @@ router.post("/users/approve", async (req, res) => {
   }
 });
 
-// POST reject user
 router.post("/users/reject", async (req, res) => {
-  // Check if user is authenticated and is admin
-  if (!req.session.user || req.session.user.role !== 'admin') {
-    return res.status(403).json({ error: "Admin access required" });
-  }
+  if (!req.session.user || req.session.user.role !== 'admin') return res.status(403).json({ error: "Admin access required" });
 
   const { userId } = req.body;
-
-  if (!userId) {
-    return res.status(400).json({ error: "User ID is required" });
-  }
+  if (!userId) return res.status(400).json({ error: "User ID is required" });
 
   try {
     const result = await req.pool.query(
@@ -541,14 +469,74 @@ router.post("/users/reject", async (req, res) => {
       [userId]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "User not found" });
-    }
+    if (result.rows.length === 0) return res.status(404).json({ error: "User not found" });
 
     res.json({ success: true, user: result.rows[0] });
   } catch (err) {
     console.error("Error rejecting user:", err);
     res.status(500).json({ error: "Error rejecting user" });
+  }
+});
+
+// ====== HOURLY CHART DATA ======
+router.get("/analytics/hourly", async (req, res) => {
+  if (!req.session.user) return res.status(401).json({ error: "Authentication required" });
+
+  try {
+    const pool = req.pool;
+    const { device, startDate, endDate } = req.query;
+
+    let query = `
+      SELECT 
+        date_trunc('hour', timestamp_window) AS hour,
+        AVG(avg_fa) AS avg_flame,
+        AVG(avg_sa) AS avg_smoke,
+        AVG(avg_ta) AS avg_temp,
+        MAX(max_alert_level) AS max_alert
+      FROM sensor_data_aggregated
+      WHERE 1=1
+    `;
+    const params = [];
+    let paramIndex = 1;
+
+    if (device) {
+      query += ` AND m = $${paramIndex}`;
+      params.push(device);
+      paramIndex++;
+    }
+
+    if (startDate) {
+      query += ` AND timestamp_window >= $${paramIndex}`;
+      params.push(startDate);
+      paramIndex++;
+    }
+
+    if (endDate) {
+      query += ` AND timestamp_window <= $${paramIndex}`;
+      params.push(endDate);
+      paramIndex++;
+    }
+
+    query += `
+      GROUP BY date_trunc('hour', timestamp_window)
+      ORDER BY hour ASC
+    `;
+
+    const result = await pool.query(query, params);
+
+    res.json({
+      success: true,
+      data: result.rows.map(row => ({
+        hour: row.hour,
+        avg_flame: parseFloat(row.avg_flame) || 0,
+        avg_smoke: parseFloat(row.avg_smoke) || 0,
+        avg_temp: parseFloat(row.avg_temp) || 0,
+        max_alert: parseInt(row.max_alert) || 0
+      }))
+    });
+  } catch (err) {
+    console.error("Error fetching hourly analytics:", err);
+    res.status(500).json({ error: "Error fetching hourly chart data" });
   }
 });
 
