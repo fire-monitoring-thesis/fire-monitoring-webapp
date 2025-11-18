@@ -5,50 +5,183 @@
   <title>Analytics - Fire Alarm System</title>
   <link rel="stylesheet" href="/styles/style.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  <!-- Toggle Button -->
   <button id="toggleBtn"></button>
-
-  <!-- Sidebar container -->
   <div id="sidebar-container"></div>
 
-  <!-- Main content -->
   <main id="main-content">
     <h1>📊 Analytics & Reports</h1>
 
-    <div class="page-placeholder">
-      <div class="placeholder-icon">📈</div>
-      <h2 class="placeholder-title">Analytics Dashboard Coming Soon</h2>
-      <p class="placeholder-description">
-        Get comprehensive insights into your fire monitoring system with detailed analytics and reporting features.
-      </p>
-      <ul class="placeholder-features">
-        <li>📊 Real-time sensor data visualization</li>
-        <li>📈 Historical trend analysis</li>
-        <li>⚠️ Alert frequency reports</li>
-        <li>🎯 Performance metrics</li>
-        <li>📋 Custom report generation</li>
-      </ul>
+    <!-- Time Filters -->
+    <div class="time-filters">
+      <button data-range="hourly" class="active">Hourly</button>
+      <button data-range="daily">Daily</button>
+      <button data-range="weekly">Weekly</button>
+      <button data-range="monthly">Monthly</button>
+      <button data-range="yearly">Yearly</button>
+    </div>
+
+    <!-- Device Lookup -->
+    <div class="device-select">
+      <label for="deviceId">Select Device:</label>
+      <select id="deviceId">
+        <option value="">All Devices</option>
+      </select>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="kpi-container">
+      <div class="kpi-card">
+        <h3>Total Alerts</h3>
+        <p id="total-alerts">0</p>
+      </div>
+      <div class="kpi-card">
+        <h3>Active Devices</h3>
+        <p id="active-devices">0</p>
+      </div>
+      <div class="kpi-card">
+        <h3>Max Alert Level</h3>
+        <p id="max-alert-level">0</p>
+      </div>
+    </div>
+
+    <!-- Chart -->
+    <div class="chart-container">
+      <canvas id="sensorChart"></canvas>
     </div>
   </main>
 
-  <!-- Load auth script -->
   <script src="/protected/script.js"></script>
 
-  <!-- Page-specific functionality -->
   <script>
+    let sensorChart;
+    const totalAlertsEl = document.getElementById('total-alerts');
+    const activeDevicesEl = document.getElementById('active-devices');
+    const maxAlertLevelEl = document.getElementById('max-alert-level');
+    const deviceSelect = document.getElementById('deviceId');
+
+    // Fetch analytics data
+    async function fetchAnalytics(range = 'daily', device = '') {
+      try {
+        const url = `/api/analytics?range=${range}` + (device ? `&m=${device}` : '');
+        const res = await fetch(url);
+        const data = await res.json();
+        return data.rows || [];
+      } catch (err) {
+        console.error('Error fetching analytics:', err);
+        return [];
+      }
+    }
+
+    // Fetch devices for dropdown
+    async function fetchDevices() {
+      try {
+        const res = await fetch('/api/devices');
+        const data = await res.json();
+        return data.devices || [];
+      } catch (err) {
+        console.error('Error fetching devices:', err);
+        return [];
+      }
+    }
+
+    // Format timestamps for chart
+    function formatTimestamp(ts) {
+      const d = new Date(ts);
+      return d.toLocaleString();
+    }
+
+    // Update KPI cards
+    function updateKPI(data) {
+      let totalAlerts = 0;
+      let maxAlert = 0;
+      const devices = new Set();
+
+      data.forEach(row => {
+        if (row.m) devices.add(row.m);
+        if (row.max_alert_level) maxAlert = Math.max(maxAlert, row.max_alert_level);
+        if (row.max_alert_level > 0) totalAlerts++;
+      });
+
+      totalAlertsEl.textContent = totalAlerts;
+      activeDevicesEl.textContent = devices.size;
+      maxAlertLevelEl.textContent = maxAlert;
+    }
+
+    // Render Chart.js line chart
+    function renderChart(data) {
+      const labels = data.map(r => formatTimestamp(r.timestamp_window));
+      const flame = data.map(r => r.avg_fa || 0);
+      const smoke = data.map(r => r.avg_sa || 0);
+      const temperature = data.map(r => r.avg_ta || 0);
+
+      const ctx = document.getElementById('sensorChart').getContext('2d');
+      if (sensorChart) sensorChart.destroy();
+
+      sensorChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Flame', data: flame, borderColor: '#EF4444', fill: false, tension: 0.2 },
+            { label: 'Smoke', data: smoke, borderColor: '#F59E0B', fill: false, tension: 0.2 },
+            { label: 'Temperature', data: temperature, borderColor: '#3B82F6', fill: false, tension: 0.2 }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: 'top' } },
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            x: { display: true, title: { display: true, text: 'Time' } },
+            y: { display: true, title: { display: true, text: 'Sensor Value' } }
+          }
+        }
+      });
+    }
+
+    // Load analytics with selected range and device
+    async function loadAnalytics(range = 'daily', device = '') {
+      document.querySelectorAll('.time-filters button').forEach(btn => btn.classList.remove('active'));
+      document.querySelector(`.time-filters button[data-range="${range}"]`)?.classList.add('active');
+
+      const data = await fetchAnalytics(range, device);
+      updateKPI(data);
+      renderChart(data);
+    }
+
+    // Initialize device dropdown
+    async function initDevices() {
+      const devices = await fetchDevices();
+      devices.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.m;
+        opt.textContent = d.m;
+        deviceSelect.appendChild(opt);
+      });
+
+      deviceSelect.addEventListener('change', () => {
+        const selectedDevice = deviceSelect.value;
+        const activeRange = document.querySelector('.time-filters button.active').dataset.range;
+        loadAnalytics(activeRange, selectedDevice);
+      });
+    }
+
+    // Initialize page
     document.addEventListener('DOMContentLoaded', () => {
-      // Wait for sidebar to load, then setup toggle
+      initDevices();
+      loadAnalytics('daily');
+
+      // Sidebar toggle logic
       setTimeout(() => {
         const toggleBtn = document.getElementById('toggleBtn');
-        const sidebar = document.getElementById('sidebar');
+        const sidebar = document.getElementById('sidebar-container'); // updated
         const main = document.getElementById('main-content');
-
         if (toggleBtn && sidebar && main) {
           let sidebarVisible = true;
           toggleBtn.style.left = '210px';
-
           toggleBtn.addEventListener('click', () => {
             if (sidebarVisible) {
               sidebar.style.transform = 'translateX(-200px)';
@@ -60,14 +193,6 @@
               toggleBtn.style.left = '210px';
             }
             sidebarVisible = !sidebarVisible;
-          });
-
-          // Highlight current page
-          const currentPage = window.location.pathname;
-          document.querySelectorAll('#sidebar a').forEach(link => {
-            if (link.getAttribute('href') === currentPage) {
-              link.classList.add('active');
-            }
           });
         }
       }, 100);

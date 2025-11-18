@@ -1,6 +1,8 @@
 // -------------------------------
-// Imports & Configuration
+// server.local.js - Local Dev Server
 // -------------------------------
+
+// Imports & Configuration
 const express = require('express');
 const session = require('express-session');
 const path = require('path');
@@ -14,37 +16,31 @@ dotenv.config();
 const authRoutes = require('./routes/auth');
 const apiRoutes = require('./routes/api');
 const messageRoutes = require('./routes/messages');
-const analyticsRoutes = require('./routes/analytics');
-
 const { ensureAuthenticated } = require('./middleware/auth');
 
 // -------------------------------
 // Initialize Express App
 // -------------------------------
 const app = express();
-const PORT = process.env.PORT || 8000;
-const NODE_ENV = process.env.NODE_ENV || 'development';
+const PORT = process.env.LOCAL_PORT || 8001; // Use a different port for local testing
+const NODE_ENV = 'development'; // Force development mode
 
 // -------------------------------
-// PostgreSQL Connection
+// PostgreSQL Connection (Local)
 // -------------------------------
-const isProduction = NODE_ENV === 'production';
-
 const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: isProduction
-    ? { rejectUnauthorized: false } // For cloud DBs (RDS, etc.)
-    : false // Disable SSL for local or Docker internal network
+  ssl: false // Disable SSL for local dev
 });
 
 // Test DB connection
 pool.connect()
   .then(client => {
-    console.log('✅ Connected to PostgreSQL database successfully');
+    console.log('✅ Connected to PostgreSQL database (local)');
     client.release();
   })
   .catch(err => {
-    console.error('❌ PostgreSQL connection error:', err.message);
+    console.error('❌ PostgreSQL connection error (local):', err.message);
   });
 
 // -------------------------------
@@ -54,7 +50,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 app.use(session({
-  secret: 'super-secret-key',  // ⚠️ replace with strong secret in prod
+  secret: 'local-dev-secret-key',
   resave: false,
   saveUninitialized: false
 }));
@@ -74,9 +70,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/auth', authRoutes);
 app.use('/api', apiRoutes);
 app.use('/messages', messageRoutes);
-app.use('/api/analytics', analyticsRoutes);
 
-// Root route - redirect based on session
+// Root route
 app.get('/', (req, res) => {
   if (req.session && req.session.user) {
     return res.redirect('/protected/dashboard.html');
@@ -93,29 +88,24 @@ app.get('/protected/:page', (req, res) => {
   res.sendFile(pagePath);
 });
 
-// Direct logout route
+// Logout route
 app.post('/logout', (req, res) => {
   req.session.destroy(err => {
-    if (err) {
-      console.error('Logout error:', err);
-      return res.status(500).send('Logout failed.');
-    }
+    if (err) return res.status(500).send('Logout failed.');
     res.clearCookie('connect.sid');
     return res.redirect('/login.html?message=logout');
   });
 });
 
-// -------------------------------
-// Error Handling
-// -------------------------------
+// Error handling
 app.use((err, req, res, next) => {
   console.error('Server error:', err.stack);
   res.status(500).send('Something went wrong!');
 });
 
 // -------------------------------
-// Start Server
+// Start Local Server
 // -------------------------------
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on http://0.0.0.0:${PORT} (${NODE_ENV} mode)`);
+  console.log(`🚀 Local dev server running on http://0.0.0.0:${PORT}`);
 });
