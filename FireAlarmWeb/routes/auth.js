@@ -99,6 +99,7 @@ router.post('/logout', (req, res) => {
 router.get('/session', (req, res) => {
   if (req.session && req.session.user) {
     return res.json({
+      id: req.session.user.id,
       username: req.session.user.username,
       email: req.session.user.email,
       role: req.session.user.role

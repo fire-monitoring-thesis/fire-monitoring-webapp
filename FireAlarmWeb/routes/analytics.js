@@ -30,7 +30,8 @@ router.get('/', async (req, res) => {
         params.push(deviceId);
     }
 
-    query += ` ORDER BY timestamp_window DESC LIMIT 500`;
+    // Order by ASC for chronological display (frontend will sort if needed)
+    query += ` ORDER BY timestamp_window ASC LIMIT 500`;
 
     try {
         const result = await pool.query(query, params);

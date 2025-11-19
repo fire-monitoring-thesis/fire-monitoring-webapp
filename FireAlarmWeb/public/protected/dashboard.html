@@ -131,7 +131,10 @@
       // Load dashboard statistics
       async function loadDashboardStats() {
         try {
-          const res = await fetch('/api/dashboard/stats');
+          const res = await fetch('/api/dashboard/stats', { credentials: 'include' });
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+          }
           const data = await res.json();
           
           document.getElementById('active-devices-stat').textContent = data.activeDevices || 0;
@@ -140,13 +143,21 @@
           document.getElementById('total-locations-stat').textContent = data.totalLocations || 0;
         } catch (err) {
           console.error('Error loading dashboard stats:', err);
+          // Show error state
+          document.getElementById('active-devices-stat').textContent = 'Error';
+          document.getElementById('today-alerts-stat').textContent = 'Error';
+          document.getElementById('system-uptime-stat').textContent = 'Error';
+          document.getElementById('total-locations-stat').textContent = 'Error';
         }
       }
 
       // Load dashboard status
       async function loadDashboardStatus() {
         try {
-          const res = await fetch('/api/dashboard/status');
+          const res = await fetch('/api/dashboard/status', { credentials: 'include' });
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+          }
           const data = await res.json();
           
           // Update system status

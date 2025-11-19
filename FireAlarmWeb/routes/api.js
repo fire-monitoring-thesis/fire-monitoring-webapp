@@ -178,16 +178,16 @@ router.get("/dashboard/stats", async (req, res) => {
     );
     const todayAlerts = parseInt(alertsResult.rows[0]?.count || 0);
 
+    // Get total devices (all devices that have ever reported, not just active)
     const totalDevicesResult = await pool.query(
       `SELECT COUNT(DISTINCT m) as count FROM sensor_data_aggregated`
     );
     const totalDevices = parseInt(totalDevicesResult.rows[0]?.count || 1);
     const uptimePercentage = totalDevices > 0 ? ((activeDevices / totalDevices) * 100).toFixed(1) : 0;
 
-    const locationsResult = await pool.query(
-      `SELECT COUNT(DISTINCT m) as count FROM sensor_data_aggregated`
-    );
-    const totalLocations = parseInt(locationsResult.rows[0]?.count || 0);
+    // Total locations = total devices (assuming each device is at a unique location)
+    // If your system has multiple devices per location, you'd need a separate locations table
+    const totalLocations = totalDevices;
 
     res.json({
       activeDevices,
@@ -219,9 +219,11 @@ router.get("/dashboard/status", async (req, res) => {
     if (maxAlertLevel >= 3) systemStatus = "Critical";
     else if (maxAlertLevel > 0) systemStatus = "Warning";
 
+    // Get most recent update from last 24 hours to avoid stale data
     const lastUpdateResult = await pool.query(
       `SELECT MAX(timestamp_window) as last_update 
-       FROM sensor_data_hourly`
+       FROM sensor_data_hourly
+       WHERE timestamp_window > NOW() - INTERVAL '24 hours'`
     );
     const lastUpdate = lastUpdateResult.rows[0]?.last_update || new Date();
 
@@ -237,13 +239,23 @@ router.get("/dashboard/status", async (req, res) => {
     const diffMinutes = Math.floor((now - lastUpdateTime) / (1000 * 60));
     const timeAgo = diffMinutes < 1 ? "Just now" : `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`;
 
+    // Determine activity details based on system status
+    let activityDetails;
+    if (systemStatus === 'Operational') {
+      activityDetails = `All ${respondingDevices} devices responding normally`;
+    } else if (systemStatus === 'Warning') {
+      activityDetails = `${respondingDevices} devices responding, some with warnings`;
+    } else {
+      activityDetails = `${respondingDevices} devices responding, critical alerts detected`;
+    }
+
     res.json({
       systemStatus,
       lastUpdate: timeAgo,
       lastUpdateTimestamp: lastUpdate,
       respondingDevices,
       recentActivity: `System check completed at ${lastUpdateTime.toLocaleTimeString()}`,
-      activityDetails: `All ${respondingDevices} devices responding normally`
+      activityDetails
     });
   } catch (err) {
     console.error("Error fetching dashboard status:", err);
@@ -279,10 +291,8 @@ router.get("/devices/stats", async (req, res) => {
     );
     const warningStatus = parseInt(warningResult.rows[0]?.count || 0);
 
-    const locationsResult = await pool.query(
-      `SELECT COUNT(DISTINCT m) as count FROM sensor_data_aggregated`
-    );
-    const totalLocations = parseInt(locationsResult.rows[0]?.count || 0);
+    // Total locations = total devices (assuming each device is at a unique location)
+    const totalLocations = totalDevices;
 
     res.json({
       onlineDevices,
@@ -486,16 +496,8 @@ router.get("/analytics/hourly", async (req, res) => {
     const pool = req.pool;
     const { device, startDate, endDate } = req.query;
 
-    let query = `
-      SELECT 
-        date_trunc('hour', timestamp_window) AS hour,
-        AVG(avg_fa) AS avg_flame,
-        AVG(avg_sa) AS avg_smoke,
-        AVG(avg_ta) AS avg_temp,
-        MAX(max_alert_level) AS max_alert
-      FROM sensor_data_aggregated
-      WHERE 1=1
-    `;
+    // Use materialized view sensor_data_hourly for consistency
+    let query = `SELECT * FROM sensor_data_hourly WHERE 1=1`;
     const params = [];
     let paramIndex = 1;
 
@@ -517,22 +519,22 @@ router.get("/analytics/hourly", async (req, res) => {
       paramIndex++;
     }
 
-    query += `
-      GROUP BY date_trunc('hour', timestamp_window)
-      ORDER BY hour ASC
-    `;
+    // Limit to last 24 hours if no date range specified
+    if (!startDate && !endDate) {
+      query += ` AND timestamp_window >= NOW() - INTERVAL '24 hours'`;
+    }
+
+    // Order by ASC for chronological display in charts
+    query += ` ORDER BY timestamp_window ASC LIMIT 500`;
 
     const result = await pool.query(query, params);
 
+    // Return in same format as other analytics endpoints
     res.json({
       success: true,
-      data: result.rows.map(row => ({
-        hour: row.hour,
-        avg_flame: parseFloat(row.avg_flame) || 0,
-        avg_smoke: parseFloat(row.avg_smoke) || 0,
-        avg_temp: parseFloat(row.avg_temp) || 0,
-        max_alert: parseInt(row.max_alert) || 0
-      }))
+      range: 'hourly',
+      view: 'sensor_data_hourly',
+      rows: result.rows
     });
   } catch (err) {
     console.error("Error fetching hourly analytics:", err);

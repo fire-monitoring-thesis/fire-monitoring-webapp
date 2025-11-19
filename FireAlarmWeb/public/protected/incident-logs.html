@@ -5,6 +5,65 @@
   <title>Incident Logs - Fire Alarm System</title>
   <link rel="stylesheet" href="/styles/style.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(100%); opacity: 0; }
+    }
+    .device-select {
+      background: white;
+      padding: 1.5rem;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 2rem;
+    }
+    .device-select label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: 600;
+      color: var(--neutral-700);
+    }
+    .device-select select,
+    .device-select input {
+      width: 100%;
+      padding: 0.75rem;
+      border: 2px solid var(--neutral-200);
+      border-radius: 8px;
+      font-size: 14px;
+      transition: border-color 0.2s;
+    }
+    .device-select select:focus,
+    .device-select input:focus {
+      outline: none;
+      border-color: var(--primary-red);
+    }
+    .time-filters {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .time-filters button {
+      padding: 0.75rem 1.5rem;
+      border: 2px solid var(--neutral-200);
+      background: white;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    .time-filters button.active {
+      background: var(--primary-red);
+      color: white;
+      border-color: var(--primary-red);
+    }
+    .time-filters button:hover {
+      border-color: var(--primary-red);
+    }
+  </style>
 </head>
 <body>
   <button id="toggleBtn"></button>
@@ -171,7 +230,7 @@
                     <td style="padding: 1rem;">${incident.temp_value?.toFixed(2) || 'N/A'}</td>
                     ${isAdmin ? `
                       <td style="padding: 1rem;">
-                        <button class="btn btn-primary" onclick="verifyIncident('${incident.device_id}', '${incident.timestamp}', ${incident.alert_level}, ${incident.flame_value || 0}, ${incident.smoke_value || 0}, ${incident.temp_value || 0})">
+                        <button class="btn btn-primary" onclick="verifyIncident('${incident.device_id}', '${incident.timestamp}', ${incident.alert_level}, ${incident.flame_value || 0}, ${incident.smoke_value || 0}, ${incident.temp_value || 0}, this)">
                           Verify
                         </button>
                       </td>
@@ -238,38 +297,80 @@
     }
 
     // Verify incident
-    async function verifyIncident(deviceId, timestamp, alertLevel, flameValue, smokeValue, tempValue) {
+    async function verifyIncident(deviceId, timestamp, alertLevel, flameValue, smokeValue, tempValue, buttonElement) {
       if (!confirm('Are you sure you want to verify this incident? This will save it to the verified incidents database.')) {
         return;
+      }
+
+      // Show loading state
+      const verifyBtn = buttonElement || event?.target;
+      if (verifyBtn) {
+        verifyBtn.disabled = true;
+        verifyBtn.textContent = 'Verifying...';
       }
 
       try {
         const res = await fetch('/api/incidents/verify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({
             device_id: deviceId,
             timestamp: timestamp,
             alert_level: alertLevel,
-            flame_value: flameValue,
-            smoke_value: smokeValue,
-            temp_value: tempValue,
+            flame_value: flameValue || null,
+            smoke_value: smokeValue || null,
+            temp_value: tempValue || null,
             notes: ''
           })
         });
 
         const data = await res.json();
         
-        if (res.ok) {
-          alert('Incident verified successfully!');
-          loadIncidents(); // Reload incidents
+        if (res.ok && data.success) {
+          // Show success message
+          showNotification('✅ Incident verified successfully!', 'success');
+          // Reload incidents after a short delay
+          setTimeout(() => {
+            loadIncidents();
+          }, 500);
         } else {
-          alert('Error: ' + (data.error || 'Failed to verify incident'));
+          showNotification('❌ Error: ' + (data.error || 'Failed to verify incident'), 'error');
         }
       } catch (err) {
         console.error('Error verifying incident:', err);
-        alert('Failed to verify incident. Please try again.');
+        showNotification('❌ Failed to verify incident. Please try again.', 'error');
+      } finally {
+        if (verifyBtn) {
+          verifyBtn.disabled = false;
+          verifyBtn.textContent = 'Verify';
+        }
       }
+    }
+
+    // Show notification
+    function showNotification(message, type = 'info') {
+      const notification = document.createElement('div');
+      notification.className = `notification notification-${type}`;
+      notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 1rem 1.5rem;
+        background: ${type === 'success' ? '#22c55e' : type === 'error' ? '#ef4444' : '#3b82f6'};
+        color: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 10000;
+        animation: slideIn 0.3s ease;
+      `;
+      notification.textContent = message;
+      document.body.appendChild(notification);
+
+      setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => notification.remove(), 300);
+      }, 3000);
     }
 
     // Switch tab

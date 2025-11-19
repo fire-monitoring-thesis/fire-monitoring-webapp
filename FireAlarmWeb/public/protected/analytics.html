@@ -63,12 +63,18 @@ async function fetchAnalytics(range='daily', device='') {
     if(range==='hourly') url = `/api/analytics/hourly`;
     else url = `/api/analytics?range=${range}`;
     if(device) url += `&m=${encodeURIComponent(device)}`;
+    
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+    if (!res.ok) {
+      console.error(`HTTP error! status: ${res.status}`);
+      throw new Error(`Failed to fetch ${range} data`);
+    }
+    
     const data = await res.json();
+    // All endpoints now return data.rows for consistency
     return data.rows || [];
   } catch(err) {
-    console.error(err);
+    console.error(`Error fetching ${range} analytics:`, err);
     return [];
   }
 }
@@ -132,36 +138,77 @@ function getWeekNumber(d){
 // Render a chart
 function renderChart(canvasId, data, range){
   const ctx=document.getElementById(canvasId);
-  if(!ctx) return;
+  if(!ctx) {
+    console.warn(`Canvas element ${canvasId} not found`);
+    return;
+  }
 
-  const labels = formatLabels(data, range);
-  const flame = data.map(r=>parseFloat(r.avg_fa)||0);
-  const smoke = data.map(r=>parseFloat(r.avg_sa)||0);
-  const temperature = data.map(r=>parseFloat(r.avg_ta)||0);
+  if(!data || data.length === 0) {
+    // Show empty state
+    if(charts[canvasId]) charts[canvasId].destroy();
+    const parent = ctx.parentElement;
+    if(parent) {
+      const emptyMsg = document.createElement('div');
+      emptyMsg.className = 'empty-chart-message';
+      emptyMsg.style.cssText = 'padding: 2rem; text-align: center; color: #6b7280;';
+      emptyMsg.textContent = 'No data available for this time range';
+      parent.appendChild(emptyMsg);
+    }
+    return;
+  }
+
+  // Sort data by timestamp (ascending for proper chart display)
+  const sortedData = [...data].sort((a, b) => {
+    const dateA = new Date(a.timestamp_window);
+    const dateB = new Date(b.timestamp_window);
+    return dateA - dateB;
+  });
+
+  const labels = formatLabels(sortedData, range);
+  const flame = sortedData.map(r=>parseFloat(r.avg_fa)||0);
+  const smoke = sortedData.map(r=>parseFloat(r.avg_sa)||0);
+  const temperature = sortedData.map(r=>parseFloat(r.avg_ta)||0);
 
   if(charts[canvasId]) charts[canvasId].destroy();
 
   charts[canvasId]=new Chart(ctx.getContext('2d'),{
     type:'line',
     data:{ labels, datasets:[
-      { label:'Flame', data:flame, borderColor:'#EF4444', backgroundColor:'rgba(239,68,68,0.2)', fill:true, tension:0.3, pointRadius:2 },
-      { label:'Smoke', data:smoke, borderColor:'#F59E0B', backgroundColor:'rgba(245,158,11,0.2)', fill:true, tension:0.3, pointRadius:2 },
-      { label:'Temperature', data:temperature, borderColor:'#3B82F6', backgroundColor:'rgba(59,130,246,0.2)', fill:true, tension:0.3, pointRadius:2 }
+      { label:'Flame', data:flame, borderColor:'#EF4444', backgroundColor:'rgba(239,68,68,0.2)', fill:true, tension:0.3, pointRadius:2, borderWidth:2 },
+      { label:'Smoke', data:smoke, borderColor:'#F59E0B', backgroundColor:'rgba(245,158,11,0.2)', fill:true, tension:0.3, pointRadius:2, borderWidth:2 },
+      { label:'Temperature', data:temperature, borderColor:'#3B82F6', backgroundColor:'rgba(59,130,246,0.2)', fill:true, tension:0.3, pointRadius:2, borderWidth:2 }
     ]},
     options:{
       responsive:true,
+      maintainAspectRatio:true,
       plugins:{
-        legend:{ position:'top' },
-        tooltip:{ mode:'index', intersect:false },
+        legend:{ position:'top', labels: { usePointStyle: true, padding: 15 } },
+        tooltip:{ 
+          mode:'index', 
+          intersect:false,
+          backgroundColor: 'rgba(0,0,0,0.8)',
+          padding: 12,
+          titleFont: { size: 14, weight: 'bold' },
+          bodyFont: { size: 13 }
+        },
         zoom:{ 
           pan:{ enabled:true, mode:'x' },
-          zoom:{ enabled:true, mode:'x' }
+          zoom:{ enabled:true, mode:'x', wheel: { enabled: true }, pinch: { enabled: true } }
         }
       },
       interaction:{ mode:'index', intersect:false },
       scales:{
-        x:{ display:true, title:{ display:true, text:'Time' } },
-        y:{ display:true, title:{ display:true, text:'Sensor Value' }, beginAtZero:true }
+        x:{ 
+          display:true, 
+          title:{ display:true, text:'Time', font: { size: 12, weight: 'bold' } },
+          grid: { color: 'rgba(0,0,0,0.05)' }
+        },
+        y:{ 
+          display:true, 
+          title:{ display:true, text:'Sensor Value', font: { size: 12, weight: 'bold' } }, 
+          beginAtZero:true,
+          grid: { color: 'rgba(0,0,0,0.05)' }
+        }
       }
     }
   });
@@ -169,10 +216,46 @@ function renderChart(canvasId, data, range){
 
 // Load all charts
 async function loadAllCharts(device=''){
+  // Show loading state
+  chartIds.forEach(range => {
+    const canvas = document.getElementById(`chart-${range}`);
+    if(canvas) {
+      const parent = canvas.parentElement;
+      if(parent) {
+        let loadingMsg = parent.querySelector('.loading-message');
+        if(!loadingMsg) {
+          loadingMsg = document.createElement('div');
+          loadingMsg.className = 'loading-message';
+          loadingMsg.style.cssText = 'padding: 2rem; text-align: center; color: #6b7280;';
+          loadingMsg.textContent = 'Loading chart data...';
+          parent.insertBefore(loadingMsg, canvas);
+        }
+      }
+    }
+  });
+
+  // Load charts sequentially to avoid overwhelming the server
   for(const range of chartIds){
-    const data = await fetchAnalytics(range, device);
-    renderChart(`chart-${range}`, data, range);
-    if(range==='daily') updateKPI(data);
+    try {
+      const data = await fetchAnalytics(range, device);
+      
+      // Remove loading message
+      const canvas = document.getElementById(`chart-${range}`);
+      if(canvas) {
+        const parent = canvas.parentElement;
+        if(parent) {
+          const loadingMsg = parent.querySelector('.loading-message');
+          if(loadingMsg) loadingMsg.remove();
+          const emptyMsg = parent.querySelector('.empty-chart-message');
+          if(emptyMsg) emptyMsg.remove();
+        }
+      }
+      
+      renderChart(`chart-${range}`, data, range);
+      if(range==='daily') updateKPI(data);
+    } catch(err) {
+      console.error(`Error loading ${range} chart:`, err);
+    }
   }
 }
 

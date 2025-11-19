@@ -87,7 +87,10 @@
       // Load device statistics
       async function loadDeviceStats() {
         try {
-          const res = await fetch('/api/devices/stats');
+          const res = await fetch('/api/devices/stats', { credentials: 'include' });
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+          }
           const data = await res.json();
           
           document.getElementById('online-devices-stat').textContent = data.onlineDevices || 0;
@@ -96,6 +99,11 @@
           document.getElementById('total-locations-devices-stat').textContent = data.totalLocations || 0;
         } catch (err) {
           console.error('Error loading device stats:', err);
+          // Show error state
+          document.getElementById('online-devices-stat').textContent = 'Error';
+          document.getElementById('offline-devices-stat').textContent = 'Error';
+          document.getElementById('warning-status-stat').textContent = 'Error';
+          document.getElementById('total-locations-devices-stat').textContent = 'Error';
         }
       }
 
