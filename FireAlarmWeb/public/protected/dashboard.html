@@ -155,8 +155,12 @@
           statusDesc.textContent = data.systemStatus === 'Operational'
             ? 'All monitoring systems are functioning normally'
             : data.systemStatus === 'Warning'
-              ? 'Some devices are reporting warnings'
-              : 'Critical alerts detected - immediate attention required';
+              ? 'Devices with confirmed alerts detected'
+              : data.systemStatus === 'Monitoring'
+                ? 'Awaiting live telemetry from field devices'
+                : data.systemStatus === 'No Live Data'
+                  ? 'No devices have reported data recently'
+                  : 'Critical alerts detected - immediate attention required';
 
           statusLight.className = 'status-light';
           if (data.systemStatus === 'Operational') statusLight.classList.add('green');
@@ -173,7 +177,13 @@
             activityBadge.textContent = 'All Systems Normal';
           } else if (data.systemStatus === 'Warning') {
             activityBadge.classList.add('warning');
-            activityBadge.textContent = 'Warning Status';
+            activityBadge.textContent = 'Confirmed Alerts Active';
+          } else if (data.systemStatus === 'Monitoring') {
+            activityBadge.classList.add('normal');
+            activityBadge.textContent = 'Monitoring';
+          } else if (data.systemStatus === 'No Live Data') {
+            activityBadge.classList.add('warning');
+            activityBadge.textContent = 'No Live Data';
           } else {
             activityBadge.classList.add('critical');
             activityBadge.textContent = 'Critical Alert';

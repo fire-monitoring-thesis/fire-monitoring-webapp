@@ -163,38 +163,63 @@ router.get("/dashboard/stats", async (req, res) => {
   try {
     const pool = req.pool;
 
-    const activeDevicesResult = await pool.query(
-      `SELECT COUNT(DISTINCT m) as count 
-       FROM sensor_data_aggregated 
-       WHERE timestamp_window > NOW() - INTERVAL '10 minutes'`
+    // Get the most recent system metrics from the system_metrics table (populated by ETL every 5 minutes)
+    const metricsResult = await pool.query(
+      `SELECT 
+        active_devices,
+        alerts_today,
+        system_uptime,
+        total_locations,
+        timestamp
+       FROM system_metrics 
+       ORDER BY timestamp DESC 
+       LIMIT 1`
     );
-    const activeDevices = parseInt(activeDevicesResult.rows[0]?.count || 0);
 
-    const alertsResult = await pool.query(
-      `SELECT COUNT(*) as count 
-       FROM sensor_data_daily 
-       WHERE max_alert_level > 0 
-       AND DATE(timestamp_window) = CURRENT_DATE`
-    );
-    const todayAlerts = parseInt(alertsResult.rows[0]?.count || 0);
+    if (metricsResult.rows.length > 0) {
+      const metrics = metricsResult.rows[0];
+      res.json({
+        activeDevices: parseInt(metrics.active_devices || 0),
+        todayAlerts: parseInt(metrics.alerts_today || 0),
+        systemUptime: `${parseFloat(metrics.system_uptime || 0).toFixed(1)}%`,
+        totalLocations: parseInt(metrics.total_locations || 0)
+      });
+    } else {
+      // Fallback: calculate from sensor_data_aggregated if system_metrics is empty
+      const activeDevicesResult = await pool.query(
+        `SELECT COUNT(DISTINCT m) as count 
+         FROM sensor_data_aggregated 
+         WHERE timestamp_window > NOW() - INTERVAL '24 hours'`
+      );
+      const activeDevices = parseInt(activeDevicesResult.rows[0]?.count || 0);
 
-    // Get total devices (all devices that have ever reported, not just active)
-    const totalDevicesResult = await pool.query(
-      `SELECT COUNT(DISTINCT m) as count FROM sensor_data_aggregated`
-    );
-    const totalDevices = parseInt(totalDevicesResult.rows[0]?.count || 1);
-    const uptimePercentage = totalDevices > 0 ? ((activeDevices / totalDevices) * 100).toFixed(1) : 0;
+      const alertsResult = await pool.query(
+        `SELECT COUNT(*) as count 
+         FROM sensor_data_aggregated 
+         WHERE alert_level >= 2 
+         AND DATE(timestamp_window) = CURRENT_DATE`
+      );
+      const todayAlerts = parseInt(alertsResult.rows[0]?.count || 0);
 
-    // Total locations = total devices (assuming each device is at a unique location)
-    // If your system has multiple devices per location, you'd need a separate locations table
-    const totalLocations = totalDevices;
+      const totalDevicesResult = await pool.query(
+        `SELECT COUNT(DISTINCT m) as count FROM sensor_data_aggregated`
+      );
+      const totalDevices = parseInt(totalDevicesResult.rows[0]?.count || 1);
+      const uptimePercentage = totalDevices > 0 ? ((activeDevices / totalDevices) * 100).toFixed(1) : 0;
 
-    res.json({
-      activeDevices,
-      todayAlerts,
-      systemUptime: `${uptimePercentage}%`,
-      totalLocations
-    });
+      // Get total locations from distinct 'a' column (location identifier)
+      const locationsResult = await pool.query(
+        `SELECT COUNT(DISTINCT a) as count FROM sensor_data_aggregated WHERE a IS NOT NULL`
+      );
+      const totalLocations = parseInt(locationsResult.rows[0]?.count || totalDevices);
+
+      res.json({
+        activeDevices,
+        todayAlerts,
+        systemUptime: `${uptimePercentage}%`,
+        totalLocations
+      });
+    }
   } catch (err) {
     console.error("Error fetching dashboard stats:", err);
     res.status(500).json({ error: "Error fetching dashboard statistics" });
@@ -208,28 +233,39 @@ router.get("/dashboard/status", async (req, res) => {
   try {
     const pool = req.pool;
 
+    // Get current alert level from sensor_data_aggregated (last hour)
     const statusResult = await pool.query(
-      `SELECT MAX(max_alert_level) as max_level 
-       FROM sensor_data_hourly 
+      `SELECT MAX(alert_level) as max_level 
+       FROM sensor_data_aggregated 
        WHERE timestamp_window > NOW() - INTERVAL '1 hour'`
     );
     const maxAlertLevel = parseInt(statusResult.rows[0]?.max_level || 0);
 
     let systemStatus = "Operational";
     if (maxAlertLevel >= 3) systemStatus = "Critical";
-    else if (maxAlertLevel > 0) systemStatus = "Warning";
+    else if (maxAlertLevel >= 2) systemStatus = "Warning";
 
-    // Get most recent update from last 24 hours to avoid stale data
-    const lastUpdateResult = await pool.query(
-      `SELECT MAX(timestamp_window) as last_update 
-       FROM sensor_data_hourly
-       WHERE timestamp_window > NOW() - INTERVAL '24 hours'`
+    // Get most recent system_metrics timestamp (this is when ETL last ran)
+    const metricsTimestampResult = await pool.query(
+      `SELECT MAX(timestamp) as last_update 
+       FROM system_metrics`
     );
-    const lastUpdate = lastUpdateResult.rows[0]?.last_update || new Date();
+    let lastUpdate = metricsTimestampResult.rows[0]?.last_update;
 
+    // Fallback to sensor_data_aggregated if system_metrics is empty
+    if (!lastUpdate) {
+      const lastUpdateResult = await pool.query(
+        `SELECT MAX(timestamp_window) as last_update 
+         FROM sensor_data_aggregated
+         WHERE timestamp_window > NOW() - INTERVAL '24 hours'`
+      );
+      lastUpdate = lastUpdateResult.rows[0]?.last_update || new Date();
+    }
+
+    // Get responding devices (devices with data in last 10 minutes)
     const respondingDevicesResult = await pool.query(
       `SELECT COUNT(DISTINCT m) as count 
-       FROM sensor_data_hourly 
+       FROM sensor_data_aggregated 
        WHERE timestamp_window > NOW() - INTERVAL '10 minutes'`
     );
     const respondingDevices = parseInt(respondingDevicesResult.rows[0]?.count || 0);
@@ -237,13 +273,28 @@ router.get("/dashboard/status", async (req, res) => {
     const lastUpdateTime = new Date(lastUpdate);
     const now = new Date();
     const diffMinutes = Math.floor((now - lastUpdateTime) / (1000 * 60));
-    const timeAgo = diffMinutes < 1 ? "Just now" : `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`;
+    const timeAgo = diffMinutes < 1 ? "Just now" : `${diffMinutes} minute${diffMinutes > 1 ? "s" : ""} ago`;
 
-    // Determine activity details based on system status
+    // Derive a friendlier status when no devices are currently reporting
+    if (respondingDevices === 0) {
+      if (diffMinutes > 15) {
+        systemStatus = "No Live Data";
+      } else if (systemStatus === "Operational") {
+        systemStatus = "Monitoring";
+      }
+    }
+
+    // Determine activity details based on system status and responding devices
     let activityDetails;
-    if (systemStatus === 'Operational') {
+    if (respondingDevices === 0) {
+      if (diffMinutes > 15) {
+        activityDetails = "No devices have reported data recently";
+      } else {
+        activityDetails = "Waiting for devices to send their next updates";
+      }
+    } else if (systemStatus === "Operational") {
       activityDetails = `All ${respondingDevices} devices responding normally`;
-    } else if (systemStatus === 'Warning') {
+    } else if (systemStatus === "Warning") {
       activityDetails = `${respondingDevices} devices responding, some with warnings`;
     } else {
       activityDetails = `${respondingDevices} devices responding, critical alerts detected`;
@@ -270,29 +321,50 @@ router.get("/devices/stats", async (req, res) => {
   try {
     const pool = req.pool;
 
+    // Get online devices (devices with data in last 10 minutes)
     const onlineResult = await pool.query(
       `SELECT COUNT(DISTINCT m) as count 
-       FROM sensor_data_hourly 
+       FROM sensor_data_aggregated 
        WHERE timestamp_window > NOW() - INTERVAL '10 minutes'`
     );
     const onlineDevices = parseInt(onlineResult.rows[0]?.count || 0);
 
+    // Get total devices (all devices that have ever reported)
     const totalResult = await pool.query(
       `SELECT COUNT(DISTINCT m) as count FROM sensor_data_aggregated`
     );
     const totalDevices = parseInt(totalResult.rows[0]?.count || 0);
     const offlineDevices = totalDevices - onlineDevices;
 
+    // Get devices with warnings (alert_level > 0 in last hour)
     const warningResult = await pool.query(
       `SELECT COUNT(DISTINCT m) as count 
-       FROM sensor_data_hourly 
-       WHERE max_alert_level > 0 
+       FROM sensor_data_aggregated 
+       WHERE alert_level >= 2 
        AND timestamp_window > NOW() - INTERVAL '1 hour'`
     );
     const warningStatus = parseInt(warningResult.rows[0]?.count || 0);
 
-    // Total locations = total devices (assuming each device is at a unique location)
-    const totalLocations = totalDevices;
+    // Get total locations from system_metrics (populated by ETL)
+    const metricsResult = await pool.query(
+      `SELECT total_locations 
+       FROM system_metrics 
+       ORDER BY timestamp DESC 
+       LIMIT 1`
+    );
+    
+    let totalLocations;
+    if (metricsResult.rows.length > 0 && metricsResult.rows[0].total_locations) {
+      totalLocations = parseInt(metricsResult.rows[0].total_locations || 0);
+    } else {
+      // Fallback: get distinct locations from 'a' column in sensor_data_aggregated
+      const locationsResult = await pool.query(
+        `SELECT COUNT(DISTINCT a) as count 
+         FROM sensor_data_aggregated 
+         WHERE a IS NOT NULL`
+      );
+      totalLocations = parseInt(locationsResult.rows[0]?.count || totalDevices);
+    }
 
     res.json({
       onlineDevices,
@@ -307,68 +379,70 @@ router.get("/devices/stats", async (req, res) => {
 });
 
 // ====== INCIDENTS ======
+// Pending incidents are based on ETL-filtered alerts from incident_alerts,
+// which already apply consistency and deduplication logic.
 router.get("/incidents", async (req, res) => {
   if (!req.session.user) return res.status(401).json({ error: "Authentication required" });
 
   try {
     const pool = req.pool;
-    const { type = 'all', device, startDate, endDate, limit = 100 } = req.query;
+    const { type = "all", device, startDate, endDate, limit = 100 } = req.query;
 
     let pendingIncidents = [];
     let verifiedIncidents = [];
 
-    if (type === 'all' || type === 'pending') {
+    if (type === "all" || type === "pending") {
       let pendingQuery = `
-        SELECT 
-          m as device_id,
-          timestamp_window as timestamp,
-          max_alert_level as alert_level,
-          avg_fa as flame_value,
-          avg_sa as smoke_value,
-          avg_ta as temp_value
-        FROM sensor_data_hourly
-        WHERE max_alert_level > 0
-        AND NOT EXISTS (
-          SELECT 1 FROM verified_incidents vi
-          WHERE vi.device_id = sensor_data_hourly.m
-          AND ABS(EXTRACT(EPOCH FROM (vi.timestamp - sensor_data_hourly.timestamp_window))) < 3600
-        )
-        AND NOT EXISTS (
-          -- Prevent duplicate alerts from same device within 30 minutes
-          SELECT 1 FROM sensor_data_hourly sd2
-          WHERE sd2.m = sensor_data_hourly.m
-          AND sd2.max_alert_level > 0
-          AND sd2.timestamp_window < sensor_data_hourly.timestamp_window
-          AND sd2.timestamp_window > sensor_data_hourly.timestamp_window - INTERVAL '30 minutes'
-        )
+        SELECT
+          ia.m AS device_id,
+          ia.time AS timestamp,
+          ia.alert_level,
+          ia.fb AS flame_value,
+          ia.sb AS smoke_value,
+          ia.tb AS temp_value
+        FROM incident_alerts ia
+        WHERE ia.alert_level >= 2
+          AND NOT EXISTS (
+            SELECT 1
+            FROM verified_incidents vi
+            WHERE vi.device_id = ia.m
+              AND ABS(EXTRACT(EPOCH FROM (vi.timestamp - ia.time))) < 3600
+          )
       `;
+
       const pendingParams = [];
-      let paramCount = 1;
+      let paramIndex = 1;
 
       if (device) {
-        pendingQuery += ` AND m = $${paramCount}`;
+        pendingQuery += ` AND ia.m = $${paramIndex}`;
         pendingParams.push(device);
-        paramCount++;
+        paramIndex++;
       }
       if (startDate) {
-        pendingQuery += ` AND timestamp_window >= $${paramCount}`;
+        pendingQuery += ` AND ia.time >= $${paramIndex}`;
         pendingParams.push(startDate);
-        paramCount++;
+        paramIndex++;
       }
       if (endDate) {
-        pendingQuery += ` AND timestamp_window <= $${paramCount}`;
+        pendingQuery += ` AND ia.time <= $${paramIndex}`;
         pendingParams.push(endDate);
-        paramCount++;
+        paramIndex++;
       }
 
-      pendingQuery += ` ORDER BY timestamp_window DESC LIMIT $${paramCount}`;
+      pendingQuery += ` ORDER BY ia.time DESC LIMIT $${paramIndex}`;
       pendingParams.push(parseInt(limit));
 
-      const pendingResult = await pool.query(pendingQuery, pendingParams);
-      pendingIncidents = pendingResult.rows;
+      try {
+        const pendingResult = await pool.query(pendingQuery, pendingParams);
+        pendingIncidents = pendingResult.rows;
+      } catch (pendingErr) {
+        // If incident_alerts table doesn't exist yet, just log and return empty list
+        console.error("Error fetching pending incidents (incident_alerts):", pendingErr);
+        pendingIncidents = [];
+      }
     }
 
-    if (type === 'all' || type === 'verified') {
+    if (type === "all" || type === "verified") {
       let verifiedQuery = `
         SELECT 
           vi.*,
@@ -399,16 +473,21 @@ router.get("/incidents", async (req, res) => {
       verifiedQuery += ` ORDER BY vi.verified_at DESC LIMIT $${paramCount}`;
       verifiedParams.push(parseInt(limit));
 
-      const verifiedResult = await pool.query(verifiedQuery, verifiedParams);
-      verifiedIncidents = verifiedResult.rows;
+      try {
+        const verifiedResult = await pool.query(verifiedQuery, verifiedParams);
+        verifiedIncidents = verifiedResult.rows;
+      } catch (verifiedErr) {
+        console.error("Error fetching verified incidents:", verifiedErr);
+        verifiedIncidents = [];
+      }
     }
 
     res.json({
       pending: pendingIncidents,
-      verified: verifiedIncidents
+      verified: verifiedIncidents,
     });
   } catch (err) {
-    console.error("Error fetching incidents:", err);
+    console.error("Error fetching incidents (outer):", err);
     res.status(500).json({ error: "Error fetching incidents" });
   }
 });
@@ -504,8 +583,8 @@ router.get("/analytics/hourly", async (req, res) => {
     const pool = req.pool;
     const { device, startDate, endDate } = req.query;
 
-    // Use materialized view sensor_data_hourly for consistency
-    let query = `SELECT * FROM sensor_data_hourly WHERE 1=1`;
+    // Use main aggregated table sensor_data_aggregated
+    let query = `SELECT m, timestamp_window, fa, fb, ga, gb, sa, sb, ta, tb, la, lo, alert_level FROM sensor_data_aggregated WHERE 1=1`;
     const params = [];
     let paramIndex = 1;
 
@@ -541,7 +620,7 @@ router.get("/analytics/hourly", async (req, res) => {
     res.json({
       success: true,
       range: 'hourly',
-      view: 'sensor_data_hourly',
+      view: 'sensor_data_aggregated',
       rows: result.rows
     });
   } catch (err) {
