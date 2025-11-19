@@ -6,6 +6,7 @@ const session = require('express-session');
 const path = require('path');
 const pg = require('pg');
 const dotenv = require('dotenv');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 
 // Load environment variables (.env file)
 dotenv.config();
@@ -67,6 +68,22 @@ app.use((req, res, next) => {
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
+
+// -------------------------------
+// Grafana Proxy (Authenticated)
+// -------------------------------
+function grafanaAuth(req, res, next) {
+  if (!req.session || !req.session.user) {
+    return res.status(401).send('Unauthorized');
+  }
+  next();
+}
+
+app.use('/grafana', grafanaAuth, createProxyMiddleware({
+  target: 'http://localhost:3000',  // Grafana container
+  changeOrigin: true,
+  pathRewrite: { '^/grafana': '' }  // Strip /grafana prefix
+}));
 
 // -------------------------------
 // Routes
