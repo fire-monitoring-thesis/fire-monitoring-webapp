@@ -92,17 +92,21 @@ function setupToggleButton() {
 
   if (toggleBtn && sidebar && mainContent) {
     let sidebarVisible = true;
-    toggleBtn.style.left = '260px';
+    // Set initial position
+    toggleBtn.style.left = '280px';
+    toggleBtn.classList.remove('sidebar-hidden');
 
     toggleBtn.addEventListener('click', () => {
       if (sidebarVisible) {
         sidebar.style.transform = 'translateX(-260px)';
         mainContent.style.marginLeft = '0';
         toggleBtn.style.left = '1rem';
+        toggleBtn.classList.add('sidebar-hidden');
       } else {
         sidebar.style.transform = 'translateX(0)';
         mainContent.style.marginLeft = '260px';
         toggleBtn.style.left = '280px';
+        toggleBtn.classList.remove('sidebar-hidden');
       }
       sidebarVisible = !sidebarVisible;
     });

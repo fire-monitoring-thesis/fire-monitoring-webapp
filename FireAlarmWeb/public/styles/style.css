@@ -365,44 +365,73 @@ h3 {
   top: 1.25rem;
   left: 280px;
   z-index: 1001;
-  background: white;
-  border: 1px solid var(--neutral-200);
-  padding: 0.625rem;
-  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, #ffffff 0%, #fafafa 100%);
+  border: 2px solid var(--neutral-200);
+  padding: 0;
+  border-radius: 12px;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
   font-size: 0.875rem;
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 3rem;
+  height: 3rem;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--neutral-700);
   backdrop-filter: blur(10px);
-}
-
-#toggleBtn:hover {
-  background: linear-gradient(135deg, var(--primary-red) 0%, var(--primary-red-light) 100%);
-  color: white;
-  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
-  transform: scale(1.05);
-  border-color: var(--primary-red);
-}
-
-#toggleBtn:active {
-  transform: scale(0.95);
+  overflow: hidden;
 }
 
 #toggleBtn::before {
-  content: '☰';
-  font-size: 1rem;
-  font-weight: 600;
-  transition: transform 0.2s ease;
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, var(--primary-red) 0%, var(--primary-red-light) 100%);
+  transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: -1;
+}
+
+#toggleBtn:hover {
+  color: white;
+  box-shadow: 0 6px 20px rgba(220, 38, 38, 0.4), 0 2px 8px rgba(220, 38, 38, 0.2);
+  transform: translateY(-2px) scale(1.05);
+  border-color: var(--primary-red);
 }
 
 #toggleBtn:hover::before {
-  transform: rotate(90deg);
+  left: 0;
+}
+
+#toggleBtn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+#toggleBtn::after {
+  content: '☰';
+  font-size: 1.25rem;
+  font-weight: 700;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: block;
+  position: relative;
+  z-index: 1;
+}
+
+#toggleBtn:hover::after {
+  transform: rotate(180deg);
+}
+
+/* Toggle button when sidebar is hidden */
+#toggleBtn.sidebar-hidden {
+  left: 1rem;
+}
+
+#toggleBtn.sidebar-hidden::after {
+  content: '☰';
+  transform: rotate(0deg);
 }
 
 /* MAIN CONTENT */

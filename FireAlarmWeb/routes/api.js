@@ -333,6 +333,14 @@ router.get("/incidents", async (req, res) => {
           WHERE vi.device_id = sensor_data_hourly.m
           AND ABS(EXTRACT(EPOCH FROM (vi.timestamp - sensor_data_hourly.timestamp_window))) < 3600
         )
+        AND NOT EXISTS (
+          -- Prevent duplicate alerts from same device within 30 minutes
+          SELECT 1 FROM sensor_data_hourly sd2
+          WHERE sd2.m = sensor_data_hourly.m
+          AND sd2.max_alert_level > 0
+          AND sd2.timestamp_window < sensor_data_hourly.timestamp_window
+          AND sd2.timestamp_window > sensor_data_hourly.timestamp_window - INTERVAL '30 minutes'
+        )
       `;
       const pendingParams = [];
       let paramCount = 1;
@@ -539,6 +547,230 @@ router.get("/analytics/hourly", async (req, res) => {
   } catch (err) {
     console.error("Error fetching hourly analytics:", err);
     res.status(500).json({ error: "Error fetching hourly chart data" });
+  }
+});
+
+// ====== OFFICIAL INCIDENTS (BFP Export System) ======
+
+// POST create official incident record
+router.post("/official-incidents", async (req, res) => {
+  if (!req.session.user) return res.status(401).json({ error: "Authentication required" });
+
+  const {
+    verified_incident_id,
+    device_id,
+    incident_timestamp,
+    alert_level,
+    flame_value,
+    smoke_value,
+    temp_value,
+    incident_type,
+    barangay,
+    city,
+    establishment_type,
+    probable_cause,
+    estimated_damage,
+    responding_units,
+    casualties_injured,
+    casualties_fatalities,
+    narrative_remarks
+  } = req.body;
+
+  if (!verified_incident_id || !device_id || !incident_timestamp || !incident_type || !barangay || !city) {
+    return res.status(400).json({ error: "Verified incident ID, device ID, timestamp, incident type, barangay, and city are required" });
+  }
+
+  try {
+    // Get verified incident to get verified_by and verified_at
+    const verifiedIncident = await req.pool.query(
+      "SELECT verified_by, verified_at FROM verified_incidents WHERE id = $1",
+      [verified_incident_id]
+    );
+
+    if (verifiedIncident.rows.length === 0) {
+      return res.status(404).json({ error: "Verified incident not found" });
+    }
+
+    const result = await req.pool.query(
+      `INSERT INTO official_incidents 
+       (verified_incident_id, device_id, incident_timestamp, alert_level, flame_value, smoke_value, temp_value,
+        incident_type, barangay, city, establishment_type, probable_cause, estimated_damage, responding_units,
+        casualties_injured, casualties_fatalities, narrative_remarks, verified_by, verified_at, generated_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+       RETURNING *`,
+      [
+        verified_incident_id, device_id, incident_timestamp, alert_level,
+        flame_value || null, smoke_value || null, temp_value || null,
+        incident_type, barangay, city, establishment_type || null,
+        probable_cause || null, estimated_damage || null, responding_units || null,
+        casualties_injured || 0, casualties_fatalities || 0, narrative_remarks || null,
+        verifiedIncident.rows[0].verified_by, verifiedIncident.rows[0].verified_at,
+        req.session.user.id
+      ]
+    );
+
+    res.json({ success: true, record: result.rows[0] });
+  } catch (err) {
+    console.error("Error creating official incident:", err);
+    res.status(500).json({ error: "Error creating official incident record" });
+  }
+});
+
+// GET official incidents
+router.get("/official-incidents", async (req, res) => {
+  if (!req.session.user) return res.status(401).json({ error: "Authentication required" });
+
+  try {
+    const pool = req.pool;
+    const { startDate, endDate, limit = 100 } = req.query;
+
+    let query = `
+      SELECT 
+        oi.*,
+        u1.username as verified_by_username,
+        u2.username as generated_by_username
+      FROM official_incidents oi
+      LEFT JOIN users u1 ON oi.verified_by = u1.id
+      LEFT JOIN users u2 ON oi.generated_by = u2.id
+      WHERE 1=1
+    `;
+    const params = [];
+    let paramCount = 1;
+
+    if (startDate) {
+      query += ` AND oi.incident_timestamp >= $${paramCount}`;
+      params.push(startDate);
+      paramCount++;
+    }
+
+    if (endDate) {
+      query += ` AND oi.incident_timestamp <= $${paramCount}`;
+      params.push(endDate);
+      paramCount++;
+    }
+
+    query += ` ORDER BY oi.generated_at DESC LIMIT $${paramCount}`;
+    params.push(parseInt(limit));
+
+    const result = await pool.query(query, params);
+    res.json({ success: true, records: result.rows });
+  } catch (err) {
+    console.error("Error fetching official incidents:", err);
+    res.status(500).json({ error: "Error fetching official incidents" });
+  }
+});
+
+// GET export official incidents (CSV/Excel)
+router.get("/official-incidents/export", async (req, res) => {
+  if (!req.session.user) return res.status(401).json({ error: "Authentication required" });
+
+  try {
+    const pool = req.pool;
+    const format = req.query.format || 'csv';
+    const { startDate, endDate } = req.query;
+
+    let query = `
+      SELECT 
+        oi.id as "Incident ID",
+        oi.device_id as "Device ID",
+        oi.incident_timestamp as "Incident Time",
+        oi.alert_level as "Alert Level",
+        oi.flame_value as "Flame Value",
+        oi.smoke_value as "Smoke Value",
+        oi.temp_value as "Temperature",
+        oi.incident_type as "Incident Type",
+        oi.barangay as "Barangay",
+        oi.city as "City",
+        oi.establishment_type as "Establishment Type",
+        oi.probable_cause as "Probable Cause",
+        oi.estimated_damage as "Estimated Damage",
+        oi.responding_units as "Responding Units",
+        oi.casualties_injured as "Casualties Injured",
+        oi.casualties_fatalities as "Casualties Fatalities",
+        oi.narrative_remarks as "Narrative Remarks",
+        u1.username as "Verified By",
+        oi.verified_at as "Verified At",
+        u2.username as "Generated By",
+        oi.generated_at as "Generated At"
+      FROM official_incidents oi
+      LEFT JOIN users u1 ON oi.verified_by = u1.id
+      LEFT JOIN users u2 ON oi.generated_by = u2.id
+      WHERE 1=1
+    `;
+    const params = [];
+    let paramCount = 1;
+
+    if (startDate) {
+      query += ` AND oi.incident_timestamp >= $${paramCount}`;
+      params.push(startDate);
+      paramCount++;
+    }
+
+    if (endDate) {
+      query += ` AND oi.incident_timestamp <= $${paramCount}`;
+      params.push(endDate);
+      paramCount++;
+    }
+
+    query += ` ORDER BY oi.generated_at DESC`;
+
+    const result = await pool.query(query, params);
+
+    // Handle empty result
+    if (!result.rows || result.rows.length === 0) {
+      return res.status(404).json({ error: "No official incident records found to export" });
+    }
+
+    if (format === 'csv') {
+      // Generate CSV
+      const headers = Object.keys(result.rows[0] || {});
+      const csvRows = [
+        headers.join(','),
+        ...result.rows.map(row => 
+          headers.map(header => {
+            const value = row[header];
+            if (value === null || value === undefined) return '';
+            const stringValue = String(value);
+            // Escape commas and quotes
+            if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+              return `"${stringValue.replace(/"/g, '""')}"`;
+            }
+            return stringValue;
+          }).join(',')
+        )
+      ];
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="fire_incidents_${new Date().toISOString().split('T')[0]}.csv"`);
+      res.send(csvRows.join('\n'));
+    } else if (format === 'excel') {
+      // For Excel, we'll return CSV with Excel MIME type (simple approach)
+      // For full Excel support, you'd need a library like exceljs
+      const headers = Object.keys(result.rows[0]);
+      const csvRows = [
+        headers.join(','),
+        ...result.rows.map(row => 
+          headers.map(header => {
+            const value = row[header];
+            if (value === null || value === undefined) return '';
+            const stringValue = String(value);
+            if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+              return `"${stringValue.replace(/"/g, '""')}"`;
+            }
+            return stringValue;
+          }).join(',')
+        )
+      ];
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="fire_incidents_${new Date().toISOString().split('T')[0]}.xlsx"`);
+      res.send(csvRows.join('\n'));
+    } else {
+      res.status(400).json({ error: "Invalid format. Use 'csv' or 'excel'" });
+    }
+  } catch (err) {
+    console.error("Error exporting official incidents:", err);
+    res.status(500).json({ error: "Error exporting official incidents" });
   }
 });
 

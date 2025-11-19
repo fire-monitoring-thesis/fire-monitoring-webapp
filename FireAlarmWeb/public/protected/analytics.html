@@ -274,22 +274,11 @@ async function initDevices(){
 
 // Initialize page
 document.addEventListener('DOMContentLoaded', async()=>{
-  await initDevices();
-  await loadAllCharts();
-
-  // Sidebar toggle
-  const toggleBtn=document.getElementById('toggleBtn');
-  const sidebar=document.getElementById('sidebar-container');
-  const main=document.getElementById('main-content');
-  if(toggleBtn&&sidebar&&main){
-    let visible=true;
-    toggleBtn.style.left='280px';
-    toggleBtn.addEventListener('click',()=>{
-      if(visible){ sidebar.style.transform='translateX(-260px)'; main.style.marginLeft='0'; toggleBtn.style.left='1rem'; }
-      else{ sidebar.style.transform='translateX(0)'; main.style.marginLeft='260px'; toggleBtn.style.left='280px'; }
-      visible=!visible;
-    });
-  }
+  // Wait for script.js to load navbar first
+  setTimeout(async () => {
+    await initDevices();
+    await loadAllCharts();
+  }, 500);
 });
 </script>
 </body>
