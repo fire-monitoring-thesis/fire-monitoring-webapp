@@ -958,6 +958,75 @@ input:focus, select:focus, textarea:focus {
   color: var(--neutral-600);
 }
 
+/* ANALYTICS FILTER GROUP */
+.filters-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 0.75rem;
+  padding: 1rem;
+  background: white;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--neutral-200);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  margin-bottom: 1.5rem;
+}
+
+.filters-group.compact {
+  align-items: end;
+}
+
+@media (min-width: 992px) {
+  .filters-group.compact {
+    grid-template-columns: 1.5fr repeat(2, minmax(150px, 0.9fr)) auto;
+  }
+}
+
+.filter-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.filter-item.stretch {
+  min-width: 220px;
+}
+
+.filter-item label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--neutral-500);
+  font-weight: 600;
+}
+
+.filter-item select,
+.filter-item input {
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--neutral-300);
+  background: var(--neutral-50);
+  font-size: 0.875rem;
+  min-height: 38px;
+}
+
+.filter-item select:focus,
+.filter-item input:focus {
+  border-color: var(--primary-red);
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.08);
+  background: white;
+}
+
+.filter-item.action {
+  display: flex;
+  align-items: flex-end;
+}
+
+.filter-item.action .btn {
+  width: 100%;
+  justify-content: center;
+}
+
 /* ANALYTICS PAGE ENHANCEMENTS */
 .time-filters {
   display: flex;
@@ -1205,6 +1274,11 @@ input:focus, select:focus, textarea:focus {
   transform: translateY(-2px);
 }
 
+.btn-compact {
+  padding: 0.6rem 1.25rem;
+  font-size: 0.85rem;
+}
+
 /* LOADING STATES */
 .loading-spinner {
   display: inline-block;
@@ -1437,6 +1511,7 @@ input:focus, select:focus, textarea:focus {
   font-weight: 600;
   letter-spacing: -0.01em;
 }
+
 
 /* ENHANCED FORMS */
 input, select, textarea {

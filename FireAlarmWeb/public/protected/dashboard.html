@@ -57,9 +57,8 @@
         <h3>🗺️ Barangay Map</h3>
         <div class="iframe-box">
           <iframe id="barangayMapPanel"
-            src="http://13.211.90.32:3000/d-solo/ad4hh2f/barangay-map?orgId=1&from=now-6h&to=now&timezone=browser&panelId=1&__feature.dashboardSceneSolo=true&theme=light"
-            width="100%" height="600" frameborder="0"></iframe>
-
+            src="/grafana/d-solo/ad4hh2f/barangay-map?orgId=1&panelId=1&from=now-6h&to=now&timezone=browser&__feature.dashboardSceneSolo=true&theme=light"
+            width="100%" height="600" frameborder="0" loading="lazy"></iframe>
         </div>
       </div>
 
@@ -67,8 +66,8 @@
         <h3>📊 Alert Status Table</h3>
         <div class="iframe-box">
           <iframe id="deviceListPanel"
-            src="http://13.211.90.32:3000/d-solo/adqm2x4/current-reading-warning-table?orgId=1&from=now-6h&to=now&timezone=browser&theme=light&panelId=1&__feature.dashboardSceneSolo=true"
-            width="100%" height="300" frameborder="0"></iframe>
+            src="/grafana/d-solo/adqm2x4/current-reading-warning-table?orgId=1&from=now-6h&to=now&timezone=browser&theme=light&panelId=1&__feature.dashboardSceneSolo=true"
+            width="100%" height="300" frameborder="0" loading="lazy"></iframe>
         </div>
       </div>
     </div>
@@ -121,6 +120,59 @@
         }
       }, 100);
 
+      const lastUpdateEl = document.getElementById('last-update-time');
+      const activityLine1 = document.getElementById('activity-line-1');
+      const activityLine2 = document.getElementById('activity-line-2');
+      const activityLine3 = document.getElementById('activity-line-3');
+
+      let lastSyncTimer = null;
+      let lastSyncTimestamp = null;
+
+      const formatRelativeTime = (diffMs) => {
+        const seconds = Math.max(0, Math.floor(diffMs / 1000));
+        if (seconds < 5) return 'moments ago';
+        if (seconds < 60) return `${seconds}s ago`;
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) {
+          const remainingSeconds = seconds % 60;
+          return remainingSeconds ? `${minutes}m ${remainingSeconds}s ago` : `${minutes}m ago`;
+        }
+        const hours = Math.floor(minutes / 60);
+        const remainingMinutes = minutes % 60;
+        return remainingMinutes ? `${hours}h ${remainingMinutes}m ago` : `${hours}h ago`;
+      };
+
+      function updateLastSyncUI() {
+        if (!lastSyncTimestamp) return;
+        const now = Date.now();
+        const relative = formatRelativeTime(now - lastSyncTimestamp);
+        const absolute = new Date(lastSyncTimestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+        const message = `${absolute} (${relative})`;
+        lastUpdateEl.textContent = message;
+        activityLine3.textContent = `📡 Last sync: ${message}`;
+      }
+
+      function stopLastSyncTicker() {
+        if (lastSyncTimer) {
+          clearInterval(lastSyncTimer);
+          lastSyncTimer = null;
+        }
+        lastSyncTimestamp = null;
+      }
+
+      function startLastSyncTicker(timestamp) {
+        if (!timestamp) {
+          stopLastSyncTicker();
+          lastUpdateEl.textContent = 'Unknown';
+          activityLine3.textContent = '📡 Last sync: Unknown';
+          return;
+        }
+        lastSyncTimestamp = new Date(timestamp).getTime();
+        updateLastSyncUI();
+        if (lastSyncTimer) clearInterval(lastSyncTimer);
+        lastSyncTimer = setInterval(updateLastSyncUI, 1000);
+      }
+
       // Dashboard stats
       async function loadDashboardStats() {
         try {
@@ -149,7 +201,6 @@
           const statusText = document.getElementById('system-status-text');
           const statusDesc = document.getElementById('system-status-desc');
           const statusLight = document.getElementById('status-light-indicator');
-          const lastUpdate = document.getElementById('last-update-time');
 
           statusText.textContent = `System Status: ${data.systemStatus || 'Unknown'}`;
           statusDesc.textContent = data.systemStatus === 'Operational'
@@ -167,7 +218,14 @@
           else if (data.systemStatus === 'Warning') statusLight.classList.add('yellow');
           else statusLight.classList.add('red');
 
-          lastUpdate.textContent = data.lastUpdate || 'Unknown';
+          if (data.lastUpdateTimestamp) {
+            startLastSyncTicker(data.lastUpdateTimestamp);
+          } else {
+            stopLastSyncTicker();
+            const fallback = data.lastUpdate || 'Unknown';
+            lastUpdateEl.textContent = fallback;
+            activityLine3.textContent = `📡 Last sync: ${fallback}`;
+          }
 
           // Activity
           const activityBadge = document.getElementById('activity-badge');
@@ -189,9 +247,13 @@
             activityBadge.textContent = 'Critical Alert';
           }
 
-          document.getElementById('activity-line-1').textContent = `✅ ${data.recentActivity || 'System check in progress'}`;
-          document.getElementById('activity-line-2').textContent = `✅ ${data.activityDetails || 'Checking devices...'}`;
-          document.getElementById('activity-line-3').textContent = `📡 Last sync: ${data.lastUpdate || 'Unknown'}`;
+          activityLine1.textContent = `✅ ${data.recentActivity || 'System check in progress'}`;
+          const alertingDevices = Number(data.alertingDevices || 0);
+          if (alertingDevices > 0) {
+            activityLine2.textContent = `🚨 ${alertingDevices} device${alertingDevices === 1 ? '' : 's'} with confirmed alerts`;
+          } else {
+            activityLine2.textContent = `📡 ${data.activityDetails || 'Checking devices...'}`;
+          }
         } catch (err) {
           console.error('Error loading dashboard status:', err);
         }
@@ -205,13 +267,13 @@
       setInterval(loadDashboardData, 300000); // refresh every 5 mins
 
       // Panel fallback
-      ['barangayMapPanel','alertStatusPanel'].forEach(id => {
+      ['barangayMapPanel','deviceListPanel'].forEach(id => {
         const iframe = document.getElementById(id);
         iframe.onload = () => console.log(`${id} loaded successfully`);
         iframe.onerror = () => {
           iframe.style.display = 'none';
           const msg = document.createElement('p');
-          msg.textContent = `Grafana panel "${id}" is unavailable in local development.`;
+          msg.textContent = `Grafana panel "${id}" is unavailable. Verify the /grafana reverse proxy or Nginx route.`;
           iframe.parentNode.appendChild(msg);
         };
       });

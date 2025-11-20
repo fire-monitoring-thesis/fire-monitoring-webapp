@@ -129,6 +129,16 @@
   <script>
     let currentUserRole = null;
     let devices = [];
+    let isLoadingIncidents = false;
+
+    function normalizeDeviceId(raw) {
+      if (!raw) return "";
+      if (typeof raw === "string") return raw;
+      if (typeof raw === "object") {
+        return raw.m || raw.device_id || raw.deviceId || raw.id || raw.name || "";
+      }
+      return "";
+    }
 
     // Get current user role
     async function getCurrentUser() {
@@ -148,18 +158,33 @@
       try {
         const res = await fetch('/api/analytics/devices');
         const data = await res.json();
-        devices = data.devices || [];
+        devices = Array.isArray(data) ? data : (data.devices || []);
         
         const select = document.getElementById('filterDevice');
+        select.innerHTML = '<option value="">All Devices</option>';
         devices.forEach(d => {
+          const deviceId = normalizeDeviceId(d);
+          if (!deviceId) return;
           const opt = document.createElement('option');
-          opt.value = d.m;
-          opt.textContent = d.m;
+          opt.value = deviceId;
+          opt.textContent = deviceId;
           select.appendChild(opt);
         });
       } catch (err) {
         console.error('Error fetching devices:', err);
       }
+    }
+
+    function setIncidentsLoadingState() {
+      if (isLoadingIncidents) return;
+      isLoadingIncidents = true;
+      const loadingMarkup = `
+        <div class="loading-content">
+          <div class="loading-spinner"></div>
+          <div class="loading-text">Refreshing incident data...</div>
+        </div>`;
+      document.getElementById('pending-incidents-container').innerHTML = loadingMarkup;
+      document.getElementById('verified-incidents-container').innerHTML = loadingMarkup;
     }
 
     // Load incidents
@@ -174,6 +199,7 @@
       if (endDate) params.append('endDate', endDate);
 
       try {
+        setIncidentsLoadingState();
         const res = await fetch(`/api/incidents?${params.toString()}`);
         const data = await res.json();
 
@@ -183,10 +209,18 @@
         console.error('Error loading incidents:', err);
         document.getElementById('pending-incidents-container').innerHTML = 
           '<div class="error-message">Failed to load incidents. Please try again.</div>';
+      } finally {
+        isLoadingIncidents = false;
       }
     }
 
     // Render pending incidents
+    function formatSensorValue(value) {
+      if (value === null || value === undefined) return 'N/A';
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric.toFixed(2) : 'N/A';
+    }
+
     function renderPendingIncidents(incidents) {
       const container = document.getElementById('pending-incidents-container');
       
@@ -216,27 +250,41 @@
                 </tr>
               </thead>
               <tbody>
-                ${incidents.map(incident => `
+                ${incidents.map(incident => {
+                  const deviceId = incident.device_id || incident.m || 'N/A';
+                  const flameValue = Number(incident.flame_value ?? incident.fb ?? NaN);
+                  const smokeValue = Number(incident.smoke_value ?? incident.sb ?? NaN);
+                  const tempValue = Number(incident.temp_value ?? incident.tb ?? NaN);
+                  return `
                   <tr style="border-bottom: 1px solid var(--neutral-200);">
-                    <td style="padding: 1rem;">${incident.device_id || 'N/A'}</td>
+                    <td style="padding: 1rem;">${deviceId}</td>
                     <td style="padding: 1rem;">${new Date(incident.timestamp).toLocaleString()}</td>
                     <td style="padding: 1rem;">
                       <span class="status-badge ${incident.alert_level >= 3 ? 'critical' : incident.alert_level > 0 ? 'warning' : 'normal'}">
                         Level ${incident.alert_level}
                       </span>
                     </td>
-                    <td style="padding: 1rem;">${incident.flame_value?.toFixed(2) || 'N/A'}</td>
-                    <td style="padding: 1rem;">${incident.smoke_value?.toFixed(2) || 'N/A'}</td>
-                    <td style="padding: 1rem;">${incident.temp_value?.toFixed(2) || 'N/A'}</td>
+                    <td style="padding: 1rem;">${formatSensorValue(flameValue)}</td>
+                    <td style="padding: 1rem;">${formatSensorValue(smokeValue)}</td>
+                    <td style="padding: 1rem;">${formatSensorValue(tempValue)}</td>
                     ${isAdmin ? `
                       <td style="padding: 1rem;">
-                        <button class="btn btn-primary" onclick="verifyIncident('${incident.device_id}', '${incident.timestamp}', ${incident.alert_level}, ${incident.flame_value || 0}, ${incident.smoke_value || 0}, ${incident.temp_value || 0}, this)">
+                        <button 
+                          class="btn btn-primary btn-compact" 
+                          data-device="${deviceId}"
+                          data-timestamp="${incident.timestamp}"
+                          data-alert="${incident.alert_level || 0}"
+                          data-flame="${Number.isFinite(flameValue) ? flameValue : ''}"
+                          data-smoke="${Number.isFinite(smokeValue) ? smokeValue : ''}"
+                          data-temp="${Number.isFinite(tempValue) ? tempValue : ''}"
+                          onclick="handleVerifyClick(this)">
                           Verify
                         </button>
                       </td>
                     ` : ''}
                   </tr>
-                `).join('')}
+                `;
+                }).join('')}
               </tbody>
             </table>
           </div>
@@ -273,27 +321,46 @@
                 </tr>
               </thead>
               <tbody>
-                ${incidents.map(incident => `
+                ${incidents.map(incident => {
+                  const deviceId = incident.device_id || incident.m || 'N/A';
+                  const flameValue = Number(incident.flame_value ?? incident.fb ?? NaN);
+                  const smokeValue = Number(incident.smoke_value ?? incident.sb ?? NaN);
+                  const tempValue = Number(incident.temp_value ?? incident.tb ?? NaN);
+                  return `
                   <tr style="border-bottom: 1px solid var(--neutral-200);">
-                    <td style="padding: 1rem;">${incident.device_id || 'N/A'}</td>
+                    <td style="padding: 1rem;">${deviceId}</td>
                     <td style="padding: 1rem;">${new Date(incident.timestamp).toLocaleString()}</td>
                     <td style="padding: 1rem;">
                       <span class="status-badge ${incident.alert_level >= 3 ? 'critical' : incident.alert_level > 0 ? 'warning' : 'normal'}">
                         Level ${incident.alert_level}
                       </span>
                     </td>
-                    <td style="padding: 1rem;">${incident.flame_value?.toFixed(2) || 'N/A'}</td>
-                    <td style="padding: 1rem;">${incident.smoke_value?.toFixed(2) || 'N/A'}</td>
-                    <td style="padding: 1rem;">${incident.temp_value?.toFixed(2) || 'N/A'}</td>
+                    <td style="padding: 1rem;">${formatSensorValue(flameValue)}</td>
+                    <td style="padding: 1rem;">${formatSensorValue(smokeValue)}</td>
+                    <td style="padding: 1rem;">${formatSensorValue(tempValue)}</td>
                     <td style="padding: 1rem;">${incident.verified_by_username || 'N/A'}</td>
                     <td style="padding: 1rem;">${new Date(incident.verified_at).toLocaleString()}</td>
                   </tr>
-                `).join('')}
+                `;
+                }).join('')}
               </tbody>
             </table>
           </div>
         </div>
       `;
+    }
+
+    function handleVerifyClick(button) {
+      const { device, timestamp, alert, flame, smoke, temp } = button.dataset;
+      verifyIncident(
+        device,
+        timestamp,
+        Number(alert || 0),
+        flame !== undefined && flame !== '' ? Number(flame) : null,
+        smoke !== undefined && smoke !== '' ? Number(smoke) : null,
+        temp !== undefined && temp !== '' ? Number(temp) : null,
+        button
+      );
     }
 
     // Verify incident
@@ -319,8 +386,8 @@
             timestamp: timestamp,
             alert_level: alertLevel,
             flame_value: flameValue || null,
-            smoke_value: smokeValue || null,
-            temp_value: tempValue || null,
+            smoke_value: smokeValue !== null && smokeValue !== undefined ? smokeValue : null,
+            temp_value: tempValue !== null && tempValue !== undefined ? tempValue : null,
             notes: ''
           })
         });
@@ -391,6 +458,7 @@
     document.addEventListener('DOMContentLoaded', async () => {
       await getCurrentUser();
       await fetchDevices();
+      document.getElementById('filterDevice').addEventListener('change', loadIncidents);
       await loadIncidents();
 
       // Auto-refresh every 5 minutes

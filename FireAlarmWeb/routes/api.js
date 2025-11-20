@@ -163,6 +163,19 @@ router.get("/dashboard/stats", async (req, res) => {
   try {
     const pool = req.pool;
 
+    let todayAlerts = 0;
+    try {
+      const alertCountResult = await pool.query(
+        `SELECT COUNT(*) AS count 
+         FROM incident_alerts 
+         WHERE alert_level >= 2 
+           AND time >= DATE_TRUNC('day', NOW())`
+      );
+      todayAlerts = parseInt(alertCountResult.rows[0]?.count || 0);
+    } catch (alertErr) {
+      console.warn("incident_alerts count unavailable, falling back to system_metrics", alertErr.message);
+    }
+
     // Get the most recent system metrics from the system_metrics table (populated by ETL every 5 minutes)
     const metricsResult = await pool.query(
       `SELECT 
@@ -180,7 +193,7 @@ router.get("/dashboard/stats", async (req, res) => {
       const metrics = metricsResult.rows[0];
       res.json({
         activeDevices: parseInt(metrics.active_devices || 0),
-        todayAlerts: parseInt(metrics.alerts_today || 0),
+        todayAlerts,
         systemUptime: `${parseFloat(metrics.system_uptime || 0).toFixed(1)}%`,
         totalLocations: parseInt(metrics.total_locations || 0)
       });
@@ -192,14 +205,6 @@ router.get("/dashboard/stats", async (req, res) => {
          WHERE timestamp_window > NOW() - INTERVAL '24 hours'`
       );
       const activeDevices = parseInt(activeDevicesResult.rows[0]?.count || 0);
-
-      const alertsResult = await pool.query(
-        `SELECT COUNT(*) as count 
-         FROM sensor_data_aggregated 
-         WHERE alert_level >= 2 
-         AND DATE(timestamp_window) = CURRENT_DATE`
-      );
-      const todayAlerts = parseInt(alertsResult.rows[0]?.count || 0);
 
       const totalDevicesResult = await pool.query(
         `SELECT COUNT(DISTINCT m) as count FROM sensor_data_aggregated`
@@ -233,13 +238,40 @@ router.get("/dashboard/status", async (req, res) => {
   try {
     const pool = req.pool;
 
-    // Get current alert level from sensor_data_aggregated (last hour)
-    const statusResult = await pool.query(
-      `SELECT MAX(alert_level) as max_level 
-       FROM sensor_data_aggregated 
-       WHERE timestamp_window > NOW() - INTERVAL '1 hour'`
-    );
-    const maxAlertLevel = parseInt(statusResult.rows[0]?.max_level || 0);
+    let maxAlertLevel = 0;
+    let alertingDevices = 0;
+    try {
+      const incidentStatusResult = await pool.query(
+        `SELECT MAX(alert_level) as max_level 
+         FROM incident_alerts 
+         WHERE time > NOW() - INTERVAL '1 hour'`
+      );
+      maxAlertLevel = parseInt(incidentStatusResult.rows[0]?.max_level || 0);
+
+      const alertDeviceResult = await pool.query(
+        `SELECT COUNT(DISTINCT m) as count
+         FROM incident_alerts
+         WHERE alert_level >= 2
+           AND time > NOW() - INTERVAL '30 minutes'`
+      );
+      alertingDevices = parseInt(alertDeviceResult.rows[0]?.count || 0);
+    } catch (incidentErr) {
+      console.warn("incident_alerts unavailable for dashboard status, using sensor_data_aggregated fallback:", incidentErr.message);
+      const statusResult = await pool.query(
+        `SELECT MAX(alert_level) as max_level 
+         FROM sensor_data_aggregated 
+         WHERE timestamp_window > NOW() - INTERVAL '1 hour'`
+      );
+      maxAlertLevel = parseInt(statusResult.rows[0]?.max_level || 0);
+
+      const fallbackAlertDeviceResult = await pool.query(
+        `SELECT COUNT(DISTINCT m) as count
+         FROM sensor_data_aggregated
+         WHERE alert_level >= 2
+           AND timestamp_window > NOW() - INTERVAL '30 minutes'`
+      );
+      alertingDevices = parseInt(fallbackAlertDeviceResult.rows[0]?.count || 0);
+    }
 
     let systemStatus = "Operational";
     if (maxAlertLevel >= 3) systemStatus = "Critical";
@@ -286,7 +318,9 @@ router.get("/dashboard/status", async (req, res) => {
 
     // Determine activity details based on system status and responding devices
     let activityDetails;
-    if (respondingDevices === 0) {
+    if (alertingDevices > 0) {
+      activityDetails = `${alertingDevices} device${alertingDevices === 1 ? '' : 's'} reporting confirmed alerts`;
+    } else if (respondingDevices === 0) {
       if (diffMinutes > 15) {
         activityDetails = "No devices have reported data recently";
       } else {
@@ -305,6 +339,7 @@ router.get("/dashboard/status", async (req, res) => {
       lastUpdate: timeAgo,
       lastUpdateTimestamp: lastUpdate,
       respondingDevices,
+      alertingDevices,
       recentActivity: `System check completed at ${lastUpdateTime.toLocaleTimeString()}`,
       activityDetails
     });
@@ -336,14 +371,26 @@ router.get("/devices/stats", async (req, res) => {
     const totalDevices = parseInt(totalResult.rows[0]?.count || 0);
     const offlineDevices = totalDevices - onlineDevices;
 
-    // Get devices with warnings (alert_level > 0 in last hour)
-    const warningResult = await pool.query(
-      `SELECT COUNT(DISTINCT m) as count 
-       FROM sensor_data_aggregated 
-       WHERE alert_level >= 2 
-       AND timestamp_window > NOW() - INTERVAL '1 hour'`
-    );
-    const warningStatus = parseInt(warningResult.rows[0]?.count || 0);
+    // Get devices with confirmed alerts (incident_alerts in last hour)
+    let warningStatus = 0;
+    try {
+      const warningResult = await pool.query(
+        `SELECT COUNT(DISTINCT m) as count 
+         FROM incident_alerts 
+         WHERE alert_level >= 2 
+           AND time > NOW() - INTERVAL '1 hour'`
+      );
+      warningStatus = parseInt(warningResult.rows[0]?.count || 0);
+    } catch (warningErr) {
+      console.warn("incident_alerts unavailable for device warning count, using aggregated fallback:", warningErr.message);
+      const fallbackWarningResult = await pool.query(
+        `SELECT COUNT(DISTINCT m) as count 
+         FROM sensor_data_aggregated 
+         WHERE alert_level >= 2 
+           AND timestamp_window > NOW() - INTERVAL '1 hour'`
+      );
+      warningStatus = parseInt(fallbackWarningResult.rows[0]?.count || 0);
+    }
 
     // Get total locations from system_metrics (populated by ETL)
     const metricsResult = await pool.query(
