@@ -7,279 +7,222 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
-  <style>
-    body { font-family: 'Inter', sans-serif; background: #f5f5f5; margin:0; padding:0; }
-    main { padding: 2rem; }
-    .chart-block { background: #fff; padding: 1rem; margin-bottom: 2rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
-    canvas { max-height: 400px; }
-    .kpi-container { display: flex; gap: 1rem; margin: 1rem 0; flex-wrap: wrap; }
-    .kpi-card { flex: 1 1 150px; background:#fff; padding:1rem; border-radius:12px; text-align:center; box-shadow:0 2px 8px rgba(0,0,0,0.1); }
-    .kpi-card h3 { margin-bottom:0.5rem; font-weight:600; }
-    .device-select { margin:1rem 0; }
-  </style>
 </head>
 <body>
+  <!-- Toggle Button -->
   <button id="toggleBtn"></button>
+
+  <!-- Sidebar container -->
   <div id="sidebar-container"></div>
 
+  <!-- Main Content -->
   <main id="main-content">
-    <h1>📊 Analytics & Reports</h1>
+    <h1>📊 Sensor Analytics Dashboard</h1>
 
-    <div class="device-select">
-      <label for="deviceId">Select Device:</label>
-      <select id="deviceId">
-        <option value="">All Devices</option>
-      </select>
+    <!-- Filters grouped -->
+    <div class="filters-group">
+      <div class="filter-item">
+        <label for="deviceId">Device:</label>
+        <select id="deviceId"><option value="">All Devices</option></select>
+      </div>
+      <div class="filter-item">
+        <label for="startDate">Start Date:</label>
+        <input type="date" id="startDate">
+      </div>
+      <div class="filter-item">
+        <label for="endDate">End Date:</label>
+        <input type="date" id="endDate">
+      </div>
+      <div class="filter-item">
+        <button id="applyFilters">Apply Filters</button>
+      </div>
     </div>
 
+    <!-- KPI cards -->
     <div class="kpi-container">
       <div class="kpi-card"><h3>Total Alerts</h3><p id="total-alerts">0</p></div>
       <div class="kpi-card"><h3>Active Devices</h3><p id="active-devices">0</p></div>
       <div class="kpi-card"><h3>Max Alert Level</h3><p id="max-alert-level">0</p></div>
     </div>
 
-    <div id="charts-container">
-      <div class="chart-block"><h2>Hourly (Last 24h)</h2><canvas id="chart-hourly"></canvas></div>
-      <div class="chart-block"><h2>Daily</h2><canvas id="chart-daily"></canvas></div>
-      <div class="chart-block"><h2>Weekly</h2><canvas id="chart-weekly"></canvas></div>
-      <div class="chart-block"><h2>Monthly</h2><canvas id="chart-monthly"></canvas></div>
-      <div class="chart-block"><h2>Yearly</h2><canvas id="chart-yearly"></canvas></div>
+    <!-- Chart -->
+    <div class="chart-block">
+      <h2>📈 Sensor Readings</h2>
+      <canvas id="sensorChart"></canvas>
     </div>
   </main>
 
-<script>
-const totalAlertsEl = document.getElementById('total-alerts');
-const activeDevicesEl = document.getElementById('active-devices');
-const maxAlertLevelEl = document.getElementById('max-alert-level');
-const deviceSelect = document.getElementById('deviceId');
+  <!-- Load sidebar & auth -->
+  <script src="/protected/script.js"></script>
 
-const chartIds = ['hourly', 'daily', 'weekly', 'monthly', 'yearly'];
-const charts = {};
+  <!-- Page-specific JS -->
+  <script>
+    // --- Sidebar highlight and toggle ---
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => {
+        const toggleBtn = document.getElementById('toggleBtn');
+        const sidebar = document.getElementById('sidebar');
+        const main = document.getElementById('main-content');
 
-// Fetch analytics data
-async function fetchAnalytics(range='daily', device='') {
-  try {
-    let url = '';
-    if(range==='hourly') url = `/api/analytics/hourly`;
-    else url = `/api/analytics?range=${range}`;
-    if(device) url += `&m=${encodeURIComponent(device)}`;
-    
-    const res = await fetch(url);
-    if (!res.ok) {
-      console.error(`HTTP error! status: ${res.status}`);
-      throw new Error(`Failed to fetch ${range} data`);
+        if (toggleBtn && sidebar && main) {
+          let sidebarVisible = true;
+          toggleBtn.style.left = '280px';
+
+          toggleBtn.addEventListener('click', () => {
+            if (sidebarVisible) {
+              sidebar.style.transform = 'translateX(-260px)';
+              main.style.marginLeft = '0';
+              toggleBtn.style.left = '1rem';
+            } else {
+              sidebar.style.transform = 'translateX(0)';
+              main.style.marginLeft = '260px';
+              toggleBtn.style.left = '280px';
+            }
+            sidebarVisible = !sidebarVisible;
+          });
+
+          // Highlight current page
+          const currentPage = window.location.pathname;
+          document.querySelectorAll('#sidebar a').forEach(link => {
+            if (link.getAttribute('href') === currentPage) {
+              link.classList.add('active');
+            }
+          });
+        }
+      }, 100);
+    });
+
+    // --- Analytics JS ---
+    const totalAlertsEl = document.getElementById('total-alerts');
+    const activeDevicesEl = document.getElementById('active-devices');
+    const maxAlertLevelEl = document.getElementById('max-alert-level');
+    const deviceSelect = document.getElementById('deviceId');
+    const startDateEl = document.getElementById('startDate');
+    const endDateEl = document.getElementById('endDate');
+    const applyBtn = document.getElementById('applyFilters');
+
+    let sensorChart = null;
+
+    async function fetchDevices() {
+      try {
+        const res = await fetch('/api/analytics/devices');
+        const data = await res.json();
+        return Array.isArray(data) ? data : (data.devices || []);
+      } catch(err) { console.error(err); return []; }
     }
-    
-    const data = await res.json();
-    // All endpoints now return data.rows for consistency
-    return data.rows || [];
-  } catch(err) {
-    console.error(`Error fetching ${range} analytics:`, err);
-    return [];
-  }
-}
 
-// Fetch devices list
-async function fetchDevices() {
-  try {
-    const res = await fetch('/api/analytics/devices');
-    const data = await res.json();
-    if (Array.isArray(data)) return data;
-    if (data.devices && Array.isArray(data.devices)) return data.devices;
-    return [];
-  } catch(err){ console.error(err); return [];}
-}
+    async function fetchData(device='', start='', end='') {
+      try {
+        let url = `/api/analytics?`;
+        if(device) url += `m=${encodeURIComponent(device)}&`;
+        if(start) url += `start=${start}&`;
+        if(end) url += `end=${end}&`;
 
-// Update KPI cards
-function updateKPI(data){
-  if(!data || data.length===0){
-    totalAlertsEl.textContent='0';
-    activeDevicesEl.textContent='0';
-    maxAlertLevelEl.textContent='0';
-    return;
-  }
-  let totalAlerts=0, maxAlert=0;
-  const devices = new Set();
-  data.forEach(row=>{
-    if(row.m) devices.add(row.m);
-    const alertLevel=parseInt(row.max_alert_level)||0;
-    maxAlert=Math.max(maxAlert,alertLevel);
-    if(alertLevel>0) totalAlerts++;
-  });
-  totalAlertsEl.textContent=totalAlerts;
-  activeDevicesEl.textContent=devices.size;
-  maxAlertLevelEl.textContent=maxAlert;
-}
-
-// Format labels based on range
-function formatLabels(data, range){
-  return data.map(r=>{
-    const dt = new Date(r.timestamp_window);
-    switch(range){
-      case 'hourly': return dt.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-      case 'daily': return dt.toLocaleDateString([], {month:'short', day:'numeric'});
-      case 'weekly': return `W${getWeekNumber(dt)}-${dt.getFullYear()}`;
-      case 'monthly': return dt.toLocaleDateString([], {month:'short', year:'numeric'});
-      case 'yearly': return dt.getFullYear();
-      default: return dt.toLocaleString();
+        const res = await fetch(url);
+        if(!res.ok) throw new Error('Failed fetching data');
+        const json = await res.json();
+        return json.rows || [];
+      } catch(err) {
+        console.error(err);
+        return [];
+      }
     }
-  });
-}
 
-// Helper: Get ISO week number
-function getWeekNumber(d){
-  const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const dayNum = date.getDay() || 7;
-  date.setDate(date.getDate() + 4 - dayNum);
-  const yearStart = new Date(date.getFullYear(),0,1);
-  return Math.ceil((((date - yearStart)/86400000) + 1)/7);
-}
+    function updateKPI(data){
+      if(!data || !data.length){
+        totalAlertsEl.textContent='0';
+        activeDevicesEl.textContent='0';
+        maxAlertLevelEl.textContent='0';
+        return;
+      }
 
-// Render a chart
-function renderChart(canvasId, data, range){
-  const ctx=document.getElementById(canvasId);
-  if(!ctx) {
-    console.warn(`Canvas element ${canvasId} not found`);
-    return;
-  }
+      let totalAlerts=0, maxAlert=0;
+      const devices = new Set();
 
-  if(!data || data.length === 0) {
-    // Show empty state
-    if(charts[canvasId]) charts[canvasId].destroy();
-    const parent = ctx.parentElement;
-    if(parent) {
-      const emptyMsg = document.createElement('div');
-      emptyMsg.className = 'empty-chart-message';
-      emptyMsg.style.cssText = 'padding: 2rem; text-align: center; color: #6b7280;';
-      emptyMsg.textContent = 'No data available for this time range';
-      parent.appendChild(emptyMsg);
+      data.forEach(row=>{
+        if(row.m) devices.add(row.m);
+        const alertLevel=parseInt(row.alert_level)||0;
+        maxAlert = Math.max(maxAlert, alertLevel);
+        if(alertLevel>0) totalAlerts++;
+      });
+
+      totalAlertsEl.textContent = totalAlerts;
+      activeDevicesEl.textContent = devices.size;
+      maxAlertLevelEl.textContent = maxAlert;
     }
-    return;
-  }
 
-  // Sort data by timestamp (ascending for proper chart display)
-  const sortedData = [...data].sort((a, b) => {
-    const dateA = new Date(a.timestamp_window);
-    const dateB = new Date(b.timestamp_window);
-    return dateA - dateB;
-  });
+    function renderChart(data){
+      const ctx = document.getElementById('sensorChart').getContext('2d');
+      const labels = data.map(r => new Date(r.timestamp_window).toLocaleString());
+      const flame = data.map(r => parseFloat(r.fa)||0);
+      const flameB = data.map(r => parseFloat(r.fb)||0);
+      const smoke = data.map(r => parseFloat(r.sa)||0);
+      const smokeB = data.map(r => parseFloat(r.sb)||0);
+      const temp = data.map(r => parseFloat(r.ta)||0);
+      const tempB = data.map(r => parseFloat(r.tb)||0);
+      const gasA = data.map(r => parseFloat(r.ga)||0);
+      const gasB = data.map(r => parseFloat(r.gb)||0);
 
-  const labels = formatLabels(sortedData, range);
-  const flame = sortedData.map(r=>parseFloat(r.avg_fa)||0);
-  const smoke = sortedData.map(r=>parseFloat(r.avg_sa)||0);
-  const temperature = sortedData.map(r=>parseFloat(r.avg_ta)||0);
+      if(sensorChart) sensorChart.destroy();
 
-  if(charts[canvasId]) charts[canvasId].destroy();
-
-  charts[canvasId]=new Chart(ctx.getContext('2d'),{
-    type:'line',
-    data:{ labels, datasets:[
-      { label:'Flame', data:flame, borderColor:'#EF4444', backgroundColor:'rgba(239,68,68,0.2)', fill:true, tension:0.3, pointRadius:2, borderWidth:2 },
-      { label:'Smoke', data:smoke, borderColor:'#F59E0B', backgroundColor:'rgba(245,158,11,0.2)', fill:true, tension:0.3, pointRadius:2, borderWidth:2 },
-      { label:'Temperature', data:temperature, borderColor:'#3B82F6', backgroundColor:'rgba(59,130,246,0.2)', fill:true, tension:0.3, pointRadius:2, borderWidth:2 }
-    ]},
-    options:{
-      responsive:true,
-      maintainAspectRatio:true,
-      plugins:{
-        legend:{ position:'top', labels: { usePointStyle: true, padding: 15 } },
-        tooltip:{ 
-          mode:'index', 
-          intersect:false,
-          backgroundColor: 'rgba(0,0,0,0.8)',
-          padding: 12,
-          titleFont: { size: 14, weight: 'bold' },
-          bodyFont: { size: 13 }
+      sensorChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Flame A', data: flame, borderColor:'#EF4444', fill:true, backgroundColor:'rgba(239,68,68,0.2)', tension:0.3 },
+            { label: 'Flame B', data: flameB, borderColor:'#B91C1C', fill:true, backgroundColor:'rgba(185,28,28,0.2)', tension:0.3 },
+            { label: 'Smoke A', data: smoke, borderColor:'#F59E0B', fill:true, backgroundColor:'rgba(245,158,11,0.2)', tension:0.3 },
+            { label: 'Smoke B', data: smokeB, borderColor:'#B45309', fill:true, backgroundColor:'rgba(180,83,9,0.2)', tension:0.3 },
+            { label: 'Temp A', data: temp, borderColor:'#3B82F6', fill:true, backgroundColor:'rgba(59,130,246,0.2)', tension:0.3 },
+            { label: 'Temp B', data: tempB, borderColor:'#1E40AF', fill:true, backgroundColor:'rgba(30,64,175,0.2)', tension:0.3 },
+            { label: 'Gas A', data: gasA, borderColor:'#10B981', fill:true, backgroundColor:'rgba(16,185,129,0.2)', tension:0.3 },
+            { label: 'Gas B', data: gasB, borderColor:'#047857', fill:true, backgroundColor:'rgba(4,120,87,0.2)', tension:0.3 }
+          ]
         },
-        zoom:{ 
-          pan:{ enabled:true, mode:'x' },
-          zoom:{ enabled:true, mode:'x', wheel: { enabled: true }, pinch: { enabled: true } }
+        options:{
+          responsive:true,
+          plugins:{
+            legend:{ position:'top', labels:{usePointStyle:true} },
+            tooltip:{ mode:'index', intersect:false },
+            zoom:{ pan:{enabled:true, mode:'x'}, zoom:{enabled:true, mode:'x'} }
+          },
+          interaction:{ mode:'index', intersect:false },
+          scales:{
+            x:{ display:true, title:{display:true, text:'Time'} },
+            y:{ display:true, title:{display:true, text:'Sensor Value'}, beginAtZero:true }
+          }
         }
-      },
-      interaction:{ mode:'index', intersect:false },
-      scales:{
-        x:{ 
-          display:true, 
-          title:{ display:true, text:'Time', font: { size: 12, weight: 'bold' } },
-          grid: { color: 'rgba(0,0,0,0.05)' }
-        },
-        y:{ 
-          display:true, 
-          title:{ display:true, text:'Sensor Value', font: { size: 12, weight: 'bold' } }, 
-          beginAtZero:true,
-          grid: { color: 'rgba(0,0,0,0.05)' }
-        }
-      }
+      });
     }
-  });
-}
 
-// Load all charts
-async function loadAllCharts(device=''){
-  // Show loading state
-  chartIds.forEach(range => {
-    const canvas = document.getElementById(`chart-${range}`);
-    if(canvas) {
-      const parent = canvas.parentElement;
-      if(parent) {
-        let loadingMsg = parent.querySelector('.loading-message');
-        if(!loadingMsg) {
-          loadingMsg = document.createElement('div');
-          loadingMsg.className = 'loading-message';
-          loadingMsg.style.cssText = 'padding: 2rem; text-align: center; color: #6b7280;';
-          loadingMsg.textContent = 'Loading chart data...';
-          parent.insertBefore(loadingMsg, canvas);
-        }
-      }
+    async function loadAnalytics(){
+      const device = deviceSelect.value;
+      const start = startDateEl.value;
+      const end = endDateEl.value;
+
+      const data = await fetchData(device, start, end);
+      updateKPI(data);
+      renderChart(data);
     }
-  });
 
-  // Load charts sequentially to avoid overwhelming the server
-  for(const range of chartIds){
-    try {
-      const data = await fetchAnalytics(range, device);
-      
-      // Remove loading message
-      const canvas = document.getElementById(`chart-${range}`);
-      if(canvas) {
-        const parent = canvas.parentElement;
-        if(parent) {
-          const loadingMsg = parent.querySelector('.loading-message');
-          if(loadingMsg) loadingMsg.remove();
-          const emptyMsg = parent.querySelector('.empty-chart-message');
-          if(emptyMsg) emptyMsg.remove();
-        }
-      }
-      
-      renderChart(`chart-${range}`, data, range);
-      if(range==='daily') updateKPI(data);
-    } catch(err) {
-      console.error(`Error loading ${range} chart:`, err);
+    async function initDevices(){
+      const devices = await fetchDevices();
+      deviceSelect.innerHTML='<option value="">All Devices</option>';
+      devices.forEach(d=>{
+        const id = typeof d==='string'?d:d.m||d.device_id||d;
+        const opt = document.createElement('option');
+        opt.value=id; opt.textContent=id;
+        deviceSelect.appendChild(opt);
+      });
     }
-  }
-}
 
-// Initialize devices dropdown
-async function initDevices(){
-  const devices = await fetchDevices();
-  deviceSelect.innerHTML='<option value="">All Devices</option>';
-  devices.forEach(d=>{
-    const deviceId = typeof d==='string'?d:(d.m||d.device_id||d);
-    const opt=document.createElement('option');
-    opt.value=deviceId; opt.textContent=deviceId;
-    deviceSelect.appendChild(opt);
-  });
-  deviceSelect.addEventListener('change',()=>loadAllCharts(deviceSelect.value));
-}
+    applyBtn.addEventListener('click', loadAnalytics);
 
-// Initialize page
-document.addEventListener('DOMContentLoaded', async()=>{
-  // Wait for script.js to load navbar first
-  setTimeout(async () => {
-    await initDevices();
-    await loadAllCharts();
-  }, 500);
-});
-</script>
+    document.addEventListener('DOMContentLoaded', async()=>{
+      await initDevices();
+      await loadAnalytics();
+    });
+  </script>
 </body>
 </html>
