@@ -470,10 +470,11 @@
         const data = await res.json();
         const select = document.getElementById('filterDevice');
         select.innerHTML = '<option value="">All Devices</option>';
-        (data.devices || []).forEach(d => {
+        // data.devices is an array of strings, not objects
+        (data.devices || []).forEach(deviceId => {
           const opt = document.createElement('option');
-          opt.value = d.m;
-          opt.textContent = d.m;
+          opt.value = deviceId;
+          opt.textContent = deviceId;
           select.appendChild(opt);
         });
       } catch (err) {

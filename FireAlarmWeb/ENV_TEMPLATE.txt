@@ -1,0 +1,13 @@
+# Fire Monitoring Application - Environment Variables Template
+# Copy these variables to your .env file and fill in your actual values
+
+NODE_ENV=production
+PORT=8000
+
+DATABASE_URL=postgresql://fireuser:your_password_here@localhost:5432/fire_monitoring
+POSTGRES_PASSWORD=your_secure_postgres_password_here
+
+SESSION_SECRET=generate_a_very_long_random_string_here
+
+GRAFANA_URL=http://localhost:3000
+

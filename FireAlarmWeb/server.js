@@ -101,6 +101,11 @@ app.get('/', (req, res) => {
   return res.redirect('/login.html');
 });
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).send('healthy');
+});
+
 // Protect /protected pages
 app.use('/protected', ensureAuthenticated);
 
