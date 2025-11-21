@@ -80,7 +80,7 @@ function grafanaAuth(req, res, next) {
 }
 
 app.use('/grafana', grafanaAuth, createProxyMiddleware({
-  target: 'http://localhost:3000',  // Grafana container
+  target: 'http://grafana:3000',  // Grafana container
   changeOrigin: true,
   pathRewrite: { '^/grafana': '' }  // Strip /grafana prefix
 }));
