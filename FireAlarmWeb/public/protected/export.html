@@ -302,11 +302,13 @@
   </style>
 </head>
 <body>
+  <!-- Toggle Button -->
   <button id="toggleBtn"></button>
+
   <div id="sidebar-container"></div>
 
   <main id="main-content">
-    <h1>📤 Export Official Incident Records</h1>
+    <h1 style="margin-left: 50px;" >Export Official Incident Records</h1>
 
     <div class="export-container">
       <!-- Left: Select Verified Incident -->
@@ -426,7 +428,7 @@
           📄 Export to CSV
         </button>
         <button class="btn-export" onclick="exportToExcel()" id="exportExcelBtn" disabled>
-          📊 Export to Excel
+          Export to Excel
         </button>
         <button class="btn-export" onclick="viewOfficialRecords()" style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);">
           📋 View All Records
@@ -711,7 +713,7 @@
         console.error('Error exporting Excel:', err);
         showNotification('❌ Failed to export Excel', 'error');
         document.getElementById('exportExcelBtn').disabled = false;
-        document.getElementById('exportExcelBtn').textContent = '📊 Export to Excel';
+        document.getElementById('exportExcelBtn').textContent = 'Export to Excel';
       }
     }
 

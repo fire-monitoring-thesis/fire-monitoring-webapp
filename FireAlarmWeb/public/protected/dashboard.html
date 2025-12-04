@@ -15,7 +15,7 @@
 
   <!-- Main Content -->
   <main id="main-content">
-    <h1>🔥 Fire Monitoring Dashboard</h1>
+    <h1 style="margin-left: 50px;" >Fire Monitoring Dashboard</h1>
 
     <!-- Quick Stats -->
     <div class="stats-grid">
@@ -54,7 +54,7 @@
     <!-- Panels Container -->
     <div class="panels-container" style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 2rem;">
       <div class="panel geomap" style="flex: 2; min-width: 400px;">
-        <h3>🗺️ Barangay Map</h3>
+        <h3>Barangay Map</h3>
         <div class="iframe-box">
           <iframe id="barangayMapPanel"
             src="/grafana/d-solo/ad4hh2f/barangay-map?orgId=1&panelId=1&from=now-6h&to=now&timezone=browser&__feature.dashboardSceneSolo=true&theme=light"
@@ -63,7 +63,7 @@
       </div>
 
       <div class="panel status" style="flex: 1; min-width: 300px;">
-        <h3>📊 Alert Status Table</h3>
+        <h3>Alert Status Table</h3>
         <div class="iframe-box">
           <iframe id="deviceListPanel"
             src="/grafana/d-solo/adqm2x4/current-reading-warning-table?orgId=1&from=now-6h&to=now&timezone=browser&theme=light&panelId=1&__feature.dashboardSceneSolo=true"
@@ -74,7 +74,7 @@
 
     <!-- Recent Activity -->
     <div class="activity-section">
-      <h2>🚨 Recent System Activity</h2>
+      <h2>Recent System Activity</h2>
       <div class="activity-box">
         <div class="activity-header">
           <h3>Latest Status</h3>
@@ -98,21 +98,22 @@
         const toggleBtn = document.getElementById('toggleBtn');
         const sidebar = document.getElementById('sidebar');
         const main = document.getElementById('main-content');
-        if (toggleBtn && sidebar && main) {
+        if (sidebar && main) {
           let sidebarVisible = true;
-          toggleBtn.style.left = '280px';
-          toggleBtn.addEventListener('click', () => {
-            if (sidebarVisible) {
-              sidebar.style.transform = 'translateX(-260px)';
-              main.style.marginLeft = '0';
-              toggleBtn.style.left = '1rem';
-            } else {
-              sidebar.style.transform = 'translateX(0)';
-              main.style.marginLeft = '260px';
-              toggleBtn.style.left = '280px';
-            }
-            sidebarVisible = !sidebarVisible;
-          });
+          const toggleBtn = document.getElementById('toggleBtn');
+
+          if (toggleBtn) {
+            toggleBtn.addEventListener('click', () => {
+              if (sidebarVisible) {
+                sidebar.style.transform = 'translateX(-260px)';
+                main.style.marginLeft = '0';
+              } else {
+                sidebar.style.transform = 'translateX(0)';
+                main.style.marginLeft = '260px';
+              }
+              sidebarVisible = !sidebarVisible;
+            });
+          }
           const currentPage = window.location.pathname;
           document.querySelectorAll('#sidebar a').forEach(link => {
             if (link.getAttribute('href') === currentPage) link.classList.add('active');
@@ -250,7 +251,7 @@
           activityLine1.textContent = `✅ ${data.recentActivity || 'System check in progress'}`;
           const alertingDevices = Number(data.alertingDevices || 0);
           if (alertingDevices > 0) {
-            activityLine2.textContent = `🚨 ${alertingDevices} device${alertingDevices === 1 ? '' : 's'} with confirmed alerts`;
+            activityLine2.textContent = `${alertingDevices} device${alertingDevices === 1 ? '' : 's'} with confirmed alerts`;
           } else {
             activityLine2.textContent = `📡 ${data.activityDetails || 'Checking devices...'}`;
           }

@@ -15,7 +15,7 @@
 
   <!-- Main Content -->
   <main id="main-content">
-    <h1>📟 Device Management</h1>
+    <h1 style="margin-left: 50px;">Device Management</h1>
 
     <!-- Device List Panel -->
     <div class="iframe-container">
@@ -65,17 +65,13 @@
 
         if (toggleBtn && sidebar && main) {
           let sidebarVisible = true;
-          toggleBtn.style.left = '280px';
-
           toggleBtn.addEventListener('click', () => {
             if (sidebarVisible) {
               sidebar.style.transform = 'translateX(-260px)';
               main.style.marginLeft = '0';
-              toggleBtn.style.left = '1rem';
             } else {
               sidebar.style.transform = 'translateX(0)';
               main.style.marginLeft = '260px';
-              toggleBtn.style.left = '280px';
             }
             sidebarVisible = !sidebarVisible;
           });
