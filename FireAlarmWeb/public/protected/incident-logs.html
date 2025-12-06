@@ -60,13 +60,30 @@
       color: white;
       border-color: var(--primary-red);
     }
-    .time-filters button:hover {
-      border-color: var(--primary-red);
+    /* --- NEW BADGES FOR TABLE --- */
+    .badge-duration {
+      background-color: #f3f4f6;
+      color: #374151;
+      border: 1px solid #d1d5db;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-weight: 600;
+      font-size: 0.85rem;
     }
+    .badge-stage {
+      padding: 2px 8px;
+      border-radius: 99px;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    .badge-stage.resolved { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    .badge-stage.ongoing { background: #ffedd5; color: #9a3412; border: 1px solid #fdba74; }
+    .badge-stage.new { background: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; }
   </style>
 </head>
 <body>
-  <!-- Toggle Button -->
   <button id="toggleBtn"></button>
 
   <div id="sidebar-container"></div>
@@ -74,7 +91,6 @@
   <main id="main-content">
     <h1 style="margin-left: 50px;" >Incident Logs</h1>
 
-    <!-- Filters -->
     <div class="device-select" style="margin-bottom: 2rem;">
       <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 1rem; align-items: end;">
         <div>
@@ -97,13 +113,11 @@
       </div>
     </div>
 
-    <!-- Tabs -->
     <div class="time-filters" style="margin-bottom: 2rem;">
       <button data-tab="pending" class="active" onclick="switchTab('pending')">Pending Verification</button>
       <button data-tab="verified" onclick="switchTab('verified')">Verified Incidents</button>
     </div>
 
-    <!-- Pending Incidents Section -->
     <div id="pending-section">
       <h2>⏳ Pending Verification</h2>
       <div id="pending-incidents-container">
@@ -114,7 +128,6 @@
       </div>
     </div>
 
-    <!-- Verified Incidents Section -->
     <div id="verified-section" style="display: none;">
       <h2>✅ Verified Incidents</h2>
       <div id="verified-incidents-container">
@@ -142,7 +155,6 @@
       return "";
     }
 
-    // Get current user role
     async function getCurrentUser() {
       try {
         const res = await fetch('/auth/session');
@@ -150,12 +162,9 @@
           const data = await res.json();
           currentUserRole = data.role;
         }
-      } catch (err) {
-        console.error('Error fetching user:', err);
-      }
+      } catch (err) { console.error(err); }
     }
 
-    // Fetch devices for filter
     async function fetchDevices() {
       try {
         const res = await fetch('/api/analytics/devices');
@@ -172,24 +181,21 @@
           opt.textContent = deviceId;
           select.appendChild(opt);
         });
-      } catch (err) {
-        console.error('Error fetching devices:', err);
-      }
+      } catch (err) { console.error(err); }
     }
 
     function setIncidentsLoadingState() {
       if (isLoadingIncidents) return;
       isLoadingIncidents = true;
-      const loadingMarkup = `
+      const markup = `
         <div class="loading-content">
           <div class="loading-spinner"></div>
           <div class="loading-text">Refreshing incident data...</div>
         </div>`;
-      document.getElementById('pending-incidents-container').innerHTML = loadingMarkup;
-      document.getElementById('verified-incidents-container').innerHTML = loadingMarkup;
+      document.getElementById('pending-incidents-container').innerHTML = markup;
+      document.getElementById('verified-incidents-container').innerHTML = markup;
     }
 
-    // Load incidents
     async function loadIncidents() {
       const device = document.getElementById('filterDevice').value;
       const startDate = document.getElementById('filterStartDate').value;
@@ -203,31 +209,25 @@
       try {
         setIncidentsLoadingState();
         const res = await fetch(`/api/incidents?${params.toString()}`);
+        if (!res.ok) throw new Error("API Error");
         const data = await res.json();
 
         renderPendingIncidents(data.pending || []);
         renderVerifiedIncidents(data.verified || []);
       } catch (err) {
         console.error('Error loading incidents:', err);
-        document.getElementById('pending-incidents-container').innerHTML = 
-          '<div class="error-message">Failed to load incidents. Please try again.</div>';
+        document.getElementById('pending-incidents-container').innerHTML = '<div class="error-message">Failed to load incidents.</div>';
       } finally {
         isLoadingIncidents = false;
       }
     }
 
-    // Render pending incidents
-    function formatSensorValue(value) {
-      if (value === null || value === undefined) return 'N/A';
-      const numeric = Number(value);
-      return Number.isFinite(numeric) ? numeric.toFixed(2) : 'N/A';
-    }
-
+    // --- RENDER PENDING INCIDENTS (FIXED) ---
     function renderPendingIncidents(incidents) {
       const container = document.getElementById('pending-incidents-container');
       
       if (incidents.length === 0) {
-        container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">No Pending Incidents</div><div class="empty-state-description">All incidents have been verified or there are no active alerts.</div></div>';
+        container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">No Pending Incidents</div></div>';
         return;
       }
 
@@ -235,50 +235,51 @@
       
       container.innerHTML = `
         <div class="activity-box">
-          <div class="activity-header">
-            <h3>Pending Incidents (${incidents.length})</h3>
-          </div>
           <div class="activity-content" style="padding: 0;">
             <table style="width: 100%; border-collapse: collapse;">
               <thead>
                 <tr style="background: var(--neutral-50); border-bottom: 2px solid var(--neutral-200);">
-                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Device ID</th>
-                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Timestamp</th>
-                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Alert Level</th>
-                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Flame</th>
-                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Smoke</th>
-                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Temperature</th>
-                  ${isAdmin ? '<th style="padding: 1rem; text-align: left; font-weight: 600;">Action</th>' : ''}
+                  <th style="padding: 1rem; text-align: left;">Device ID</th>
+                  <th style="padding: 1rem; text-align: left;">Start Time (PH)</th>
+                  <th style="padding: 1rem; text-align: left;">Duration</th>
+                  <th style="padding: 1rem; text-align: left;">Status</th>
+                  <th style="padding: 1rem; text-align: left;">Alert Level</th>
+                  ${isAdmin ? '<th style="padding: 1rem; text-align: left;">Action</th>' : ''}
                 </tr>
               </thead>
               <tbody>
                 ${incidents.map(incident => {
                   const deviceId = incident.device_id || incident.m || 'N/A';
-                  const flameValue = Number(incident.flame_value ?? incident.fb ?? NaN);
-                  const smokeValue = Number(incident.smoke_value ?? incident.sb ?? NaN);
-                  const tempValue = Number(incident.temp_value ?? incident.tb ?? NaN);
+                  // API returns start_time already in PH timezone logic, or fallback to timestamp
+                  const startTime = incident.start_time ? new Date(incident.start_time).toLocaleString() : new Date(incident.timestamp).toLocaleString();
+                  const duration = incident.duration || '00:00:00';
+                  const stage = incident.event_stage || 'new';
+
                   return `
                   <tr style="border-bottom: 1px solid var(--neutral-200);">
-                    <td style="padding: 1rem;">${deviceId}</td>
-                    <td style="padding: 1rem;">${new Date(incident.timestamp).toLocaleString()}</td>
+                    <td style="padding: 1rem;"><strong>${deviceId}</strong></td>
+                    <td style="padding: 1rem;">${startTime}</td>
                     <td style="padding: 1rem;">
-                      <span class="status-badge ${incident.alert_level >= 3 ? 'critical' : incident.alert_level > 0 ? 'warning' : 'normal'}">
+                      <span class="badge-duration">⏱ ${duration}</span>
+                    </td>
+                    <td style="padding: 1rem;">
+                      <span class="badge-stage ${stage}">${stage}</span>
+                    </td>
+                    <td style="padding: 1rem;">
+                      <span class="status-badge ${incident.alert_level >= 3 ? 'critical' : 'warning'}">
                         Level ${incident.alert_level}
                       </span>
                     </td>
-                    <td style="padding: 1rem;">${formatSensorValue(flameValue)}</td>
-                    <td style="padding: 1rem;">${formatSensorValue(smokeValue)}</td>
-                    <td style="padding: 1rem;">${formatSensorValue(tempValue)}</td>
                     ${isAdmin ? `
                       <td style="padding: 1rem;">
                         <button 
                           class="btn btn-primary btn-compact" 
                           data-device="${deviceId}"
-                          data-timestamp="${incident.timestamp}"
-                          data-alert="${incident.alert_level || 0}"
-                          data-flame="${Number.isFinite(flameValue) ? flameValue : ''}"
-                          data-smoke="${Number.isFinite(smokeValue) ? smokeValue : ''}"
-                          data-temp="${Number.isFinite(tempValue) ? tempValue : ''}"
+                          data-timestamp="${incident.start_time || incident.timestamp}" 
+                          data-alert="${incident.alert_level}"
+                          data-flame="${incident.flame_value}"
+                          data-smoke="${incident.smoke_value}"
+                          data-temp="${incident.temp_value}"
                           onclick="handleVerifyClick(this)">
                           Verify
                         </button>
@@ -294,52 +295,40 @@
       `;
     }
 
-    // Render verified incidents
+    // --- RENDER VERIFIED INCIDENTS (FIXED) ---
     function renderVerifiedIncidents(incidents) {
       const container = document.getElementById('verified-incidents-container');
       
       if (incidents.length === 0) {
-        container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">No Verified Incidents</div><div class="empty-state-description">No incidents have been verified yet.</div></div>';
+        container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">No Verified Incidents</div></div>';
         return;
       }
 
       container.innerHTML = `
         <div class="activity-box">
-          <div class="activity-header">
-            <h3>Verified Incidents (${incidents.length})</h3>
-          </div>
           <div class="activity-content" style="padding: 0;">
             <table style="width: 100%; border-collapse: collapse;">
               <thead>
                 <tr style="background: var(--neutral-50); border-bottom: 2px solid var(--neutral-200);">
-                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Device ID</th>
-                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Incident Time</th>
-                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Alert Level</th>
-                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Flame</th>
-                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Smoke</th>
-                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Temperature</th>
-                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Verified By</th>
-                  <th style="padding: 1rem; text-align: left; font-weight: 600;">Verified At</th>
+                  <th style="padding: 1rem; text-align: left;">Device ID</th>
+                  <th style="padding: 1rem; text-align: left;">Incident Time</th>
+                  <th style="padding: 1rem; text-align: left;">Alert Level</th>
+                  <th style="padding: 1rem; text-align: left;">Verified By</th>
+                  <th style="padding: 1rem; text-align: left;">Verified At</th>
                 </tr>
               </thead>
               <tbody>
                 ${incidents.map(incident => {
-                  const deviceId = incident.device_id || incident.m || 'N/A';
-                  const flameValue = Number(incident.flame_value ?? incident.fb ?? NaN);
-                  const smokeValue = Number(incident.smoke_value ?? incident.sb ?? NaN);
-                  const tempValue = Number(incident.temp_value ?? incident.tb ?? NaN);
+                  const deviceId = incident.device_id || 'N/A';
                   return `
                   <tr style="border-bottom: 1px solid var(--neutral-200);">
                     <td style="padding: 1rem;">${deviceId}</td>
                     <td style="padding: 1rem;">${new Date(incident.timestamp).toLocaleString()}</td>
                     <td style="padding: 1rem;">
-                      <span class="status-badge ${incident.alert_level >= 3 ? 'critical' : incident.alert_level > 0 ? 'warning' : 'normal'}">
+                      <span class="status-badge ${incident.alert_level >= 3 ? 'critical' : 'warning'}">
                         Level ${incident.alert_level}
                       </span>
                     </td>
-                    <td style="padding: 1rem;">${formatSensorValue(flameValue)}</td>
-                    <td style="padding: 1rem;">${formatSensorValue(smokeValue)}</td>
-                    <td style="padding: 1rem;">${formatSensorValue(tempValue)}</td>
                     <td style="padding: 1rem;">${incident.verified_by_username || 'N/A'}</td>
                     <td style="padding: 1rem;">${new Date(incident.verified_at).toLocaleString()}</td>
                   </tr>
@@ -358,25 +347,18 @@
         device,
         timestamp,
         Number(alert || 0),
-        flame !== undefined && flame !== '' ? Number(flame) : null,
-        smoke !== undefined && smoke !== '' ? Number(smoke) : null,
-        temp !== undefined && temp !== '' ? Number(temp) : null,
+        flame ? Number(flame) : null,
+        smoke ? Number(smoke) : null,
+        temp ? Number(temp) : null,
         button
       );
     }
 
-    // Verify incident
     async function verifyIncident(deviceId, timestamp, alertLevel, flameValue, smokeValue, tempValue, buttonElement) {
-      if (!confirm('Are you sure you want to verify this incident? This will save it to the verified incidents database.')) {
-        return;
-      }
+      if (!confirm('Verify this incident?')) return;
 
-      // Show loading state
-      const verifyBtn = buttonElement || event?.target;
-      if (verifyBtn) {
-        verifyBtn.disabled = true;
-        verifyBtn.textContent = 'Verifying...';
-      }
+      const verifyBtn = buttonElement;
+      if (verifyBtn) { verifyBtn.disabled = true; verifyBtn.textContent = 'Verifying...'; }
 
       try {
         const res = await fetch('/api/incidents/verify', {
@@ -385,11 +367,11 @@
           credentials: 'include',
           body: JSON.stringify({
             device_id: deviceId,
-            timestamp: timestamp,
+            timestamp: timestamp, 
             alert_level: alertLevel,
-            flame_value: flameValue || null,
-            smoke_value: smokeValue !== null && smokeValue !== undefined ? smokeValue : null,
-            temp_value: tempValue !== null && tempValue !== undefined ? tempValue : null,
+            flame_value: flameValue,
+            smoke_value: smokeValue,
+            temp_value: tempValue,
             notes: ''
           })
         });
@@ -397,74 +379,60 @@
         const data = await res.json();
         
         if (res.ok && data.success) {
-          // Show success message
-          showNotification('✅ Incident verified successfully!', 'success');
-          // Reload incidents after a short delay
-          setTimeout(() => {
-            loadIncidents();
-          }, 500);
+          showNotification('✅ Verified successfully!', 'success');
+          setTimeout(loadIncidents, 500);
         } else {
-          showNotification('❌ Error: ' + (data.error || 'Failed to verify incident'), 'error');
+          showNotification('❌ Error: ' + (data.error || 'Failed'), 'error');
         }
       } catch (err) {
-        console.error('Error verifying incident:', err);
-        showNotification('❌ Failed to verify incident. Please try again.', 'error');
+        showNotification('❌ Failed to verify.', 'error');
       } finally {
-        if (verifyBtn) {
-          verifyBtn.disabled = false;
-          verifyBtn.textContent = 'Verify';
-        }
+        if (verifyBtn) { verifyBtn.disabled = false; verifyBtn.textContent = 'Verify'; }
       }
     }
 
-    // Show notification
     function showNotification(message, type = 'info') {
-      const notification = document.createElement('div');
-      notification.className = `notification notification-${type}`;
-      notification.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        padding: 1rem 1.5rem;
-        background: ${type === 'success' ? '#22c55e' : type === 'error' ? '#ef4444' : '#3b82f6'};
-        color: white;
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        z-index: 10000;
-        animation: slideIn 0.3s ease;
-      `;
-      notification.textContent = message;
-      document.body.appendChild(notification);
-
-      setTimeout(() => {
-        notification.style.animation = 'slideOut 0.3s ease';
-        setTimeout(() => notification.remove(), 300);
-      }, 3000);
+      const n = document.createElement('div');
+      n.className = `notification notification-${type}`;
+      n.style.cssText = `position: fixed; top: 20px; right: 20px; padding: 1rem; background: ${type==='success'?'#22c55e':'#ef4444'}; color: white; border-radius: 8px; z-index: 10000;`;
+      n.textContent = message;
+      document.body.appendChild(n);
+      setTimeout(() => n.remove(), 3000);
     }
 
-    // Switch tab
     function switchTab(tab) {
       document.querySelectorAll('.time-filters button').forEach(btn => btn.classList.remove('active'));
       document.querySelector(`.time-filters button[data-tab="${tab}"]`).classList.add('active');
-      
-      if (tab === 'pending') {
-        document.getElementById('pending-section').style.display = 'block';
-        document.getElementById('verified-section').style.display = 'none';
-      } else {
-        document.getElementById('pending-section').style.display = 'none';
-        document.getElementById('verified-section').style.display = 'block';
-      }
+      document.getElementById('pending-section').style.display = tab === 'pending' ? 'block' : 'none';
+      document.getElementById('verified-section').style.display = tab === 'verified' ? 'block' : 'none';
     }
 
-    // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
+      // Sidebar Toggle
+      setTimeout(() => {
+        const toggleBtn = document.getElementById('toggleBtn');
+        const sidebar = document.getElementById('sidebar-container');
+        const main = document.getElementById('main-content');
+        if (sidebar && main && toggleBtn) {
+          let sidebarVisible = true;
+          toggleBtn.addEventListener('click', () => {
+            if (sidebarVisible) {
+              sidebar.style.transform = 'translateX(-260px)';
+              main.style.marginLeft = '0';
+            } else {
+              sidebar.style.transform = 'translateX(0)';
+              main.style.marginLeft = '260px';
+            }
+            sidebarVisible = !sidebarVisible;
+          });
+        }
+      }, 100);
+
       await getCurrentUser();
       await fetchDevices();
       document.getElementById('filterDevice').addEventListener('change', loadIncidents);
       await loadIncidents();
-
-      // Auto-refresh every 5 minutes
-      setInterval(loadIncidents, 300000);
+      setInterval(loadIncidents, 60000); 
     });
   </script>
 </body>

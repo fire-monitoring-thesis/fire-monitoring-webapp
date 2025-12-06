@@ -114,7 +114,6 @@ router.post("/verify-admin", async (req, res) => {
 router.get("/dashboard/stats", async (req, res) => {
   if (!req.session.user) return res.status(401).json({ error: "Authentication required" });
   try {
-    // Priority: Fetch from system_metrics (Heartbeat table)
     const metricsResult = await req.pool.query(
       `SELECT active_devices, alerts_today, system_uptime, total_locations 
        FROM system_metrics ORDER BY timestamp DESC LIMIT 1`
@@ -129,7 +128,6 @@ router.get("/dashboard/stats", async (req, res) => {
       stats.systemUptime = `${parseFloat(m.system_uptime || 100).toFixed(1)}%`;
       stats.totalLocations = parseInt(m.total_locations || 0);
     } else {
-      // Fallback
       const fallbackActive = await req.pool.query(`SELECT COUNT(DISTINCT m) as count FROM sensor_data_aggregated WHERE timestamp_window > NOW() - INTERVAL '24 hours'`);
       stats.activeDevices = parseInt(fallbackActive.rows[0]?.count || 0);
     }
@@ -140,11 +138,10 @@ router.get("/dashboard/stats", async (req, res) => {
   }
 });
 
-// DASHBOARD STATUS (The logic for "Operational", "No Live Data", etc.)
+// DASHBOARD STATUS
 router.get("/dashboard/status", async (req, res) => {
   if (!req.session.user) return res.status(401).json({ error: "Authentication required" });
   try {
-    // 1. Check Ongoing Fires
     const incidentRes = await req.pool.query(
       `SELECT MAX(alert_level) as max_level, COUNT(DISTINCT m) as device_count
        FROM incident_alerts WHERE last_seen > NOW() - INTERVAL '20 minutes' AND alert_level >= 2`
@@ -152,12 +149,10 @@ router.get("/dashboard/status", async (req, res) => {
     const maxLvl = parseInt(incidentRes.rows[0]?.max_level || 0);
     const alertDevs = parseInt(incidentRes.rows[0]?.device_count || 0);
 
-    // 2. Default Status
     let status = "Operational";
     if (maxLvl >= 3) status = "Critical";
     else if (maxLvl >= 2) status = "Warning";
 
-    // 3. Check Freshness & Idle State
     const metricRes = await req.pool.query(`SELECT active_devices, timestamp FROM system_metrics ORDER BY timestamp DESC LIMIT 1`);
     const lastUpdate = metricRes.rows[0]?.timestamp || new Date();
     const activeDevs = parseInt(metricRes.rows[0]?.active_devices || 0);
@@ -197,58 +192,133 @@ router.get("/devices/stats", async (req, res) => {
 });
 
 // ==========================================
-// 3. SYSTEM ANALYTICS ENDPOINTS (NEW)
+// 3. SYSTEM ANALYTICS ENDPOINTS
 // ==========================================
 
-// A. 24-HOUR STATUS TIMELINE (Battery-Style Chart)
-router.get("/analytics/hourly", async (req, res) => {
-  if (!req.session.user) return res.status(401).json({ error: "Authentication required" });
-
+// A. GET DEVICE LIST
+router.get("/analytics/devices", async (req, res) => {
+  if (!req.session.user) return res.status(401).json({ error: "Auth required" });
   try {
-    const pool = req.pool;
-    const { startDate, endDate } = req.query;
-
-    const query = `
-      SELECT 
-        timestamp as timestamp_window, 
-        status_level as alert_level 
-      FROM system_metrics 
-      WHERE timestamp >= $1::timestamp 
-        AND timestamp <= $2::timestamp
-      ORDER BY timestamp ASC
-    `;
-
-    const start = startDate ? `${startDate} 00:00:00` : 'NOW() - INTERVAL \'24 hours\'';
-    const end = endDate ? `${endDate} 23:59:59` : 'NOW()';
-
-    const result = await pool.query(query, [start, end]);
-    res.json({ success: true, rows: result.rows });
+    const result = await req.pool.query("SELECT DISTINCT m FROM sensor_data_aggregated ORDER BY m ASC");
+    res.json(result.rows); 
   } catch (err) {
-    console.error("Error fetching status timeline:", err);
-    res.status(500).json({ error: "Error fetching status timeline" });
+    console.error("Error fetching devices:", err);
+    res.status(500).json({ error: "Error fetching device list" });
   }
 });
 
-// B. 30-DAY PERFORMANCE TRENDS (Active Devices & Uptime)
-router.get("/analytics/performance", async (req, res) => {
-  if (!req.session.user) return res.status(401).json({ error: "Authentication required" });
+// B. SENSOR READINGS CHART
+router.get("/analytics/hourly", async (req, res) => {
+  if (!req.session.user) return res.status(401).json({ error: "Auth required" });
+  try {
+    const { device, startDate, endDate } = req.query;
+
+    let query = `
+      SELECT 
+        timestamp_window,
+        ROUND(AVG(fa)::numeric, 2) as fa,
+        ROUND(AVG(fb)::numeric, 2) as fb,
+        ROUND(AVG(sa)::numeric, 2) as sa,
+        ROUND(AVG(sb)::numeric, 2) as sb,
+        ROUND(AVG(ta)::numeric, 2) as ta,
+        ROUND(AVG(tb)::numeric, 2) as tb,
+        ROUND(AVG(ga)::numeric, 2) as ga,
+        ROUND(AVG(gb)::numeric, 2) as gb
+      FROM sensor_data_aggregated 
+      WHERE 1=1
+    `;
+
+    const params = [];
+    let idx = 1;
+
+    if (device) { query += ` AND m = $${idx++}`; params.push(device); }
+    if (startDate) { query += ` AND timestamp_window >= $${idx++}::timestamp`; params.push(`${startDate} 00:00:00`); }
+    else { query += ` AND timestamp_window >= NOW() - INTERVAL '24 hours'`; }
+    if (endDate) { query += ` AND timestamp_window <= $${idx++}::timestamp`; params.push(`${endDate} 23:59:59`); }
+
+    query += ` GROUP BY timestamp_window ORDER BY timestamp_window ASC`;
+    const result = await req.pool.query(query, params);
+    res.json({ rows: result.rows });
+
+  } catch (err) {
+    console.error("Error fetching sensor chart:", err);
+    res.status(500).json({ error: "Error fetching sensor chart" });
+  }
+});
+
+// C. HEATMAP DATA (SERVER-SIDE CONVERSION TO TEXT)
+// This guarantees the frontend sees "2025-12-07" regardless of browser timezone
+router.get("/analytics/heatmap", async (req, res) => {
+  if (!req.session.user) return res.status(401).json({ error: "Auth required" });
 
   try {
-    const pool = req.pool;
-    const { days = 30 } = req.query; 
+    const { type, start, end, device, level } = req.query;
+    const isVerified = type === 'verified';
+    const tableName = isVerified ? 'verified_incidents' : 'incident_alerts';
+    const dateCol = isVerified ? 'timestamp' : 'started_at';
+    const deviceCol = isVerified ? 'device_id' : 'm'; 
 
+    // USE TO_CHAR to force Postgres to output a strict string 'YYYY-MM-DD'
+    // relative to Asia/Manila. This avoids JSON Date Object conversion issues.
+    let query = `
+      SELECT 
+        TO_CHAR(
+          ${dateCol} AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 
+          'YYYY-MM-DD'
+        ) as date_key, 
+        COUNT(*) as count 
+      FROM ${tableName} 
+      WHERE 1=1
+    `;
+
+    const params = [];
+    let idx = 1;
+
+    if (start) { query += ` AND ${dateCol} >= $${idx++}::timestamp`; params.push(`${start} 00:00:00`); }
+    if (end) { query += ` AND ${dateCol} <= $${idx++}::timestamp`; params.push(`${end} 23:59:59`); }
+
+    if (device) { query += ` AND ${deviceCol} = $${idx++}`; params.push(device); }
+    if (!isVerified && level) {
+      if (level === 'critical') query += ` AND alert_level >= 3`; 
+      else query += ` AND alert_level = 2`; 
+    }
+
+    // Group by the formatted string
+    query += ` GROUP BY 1`; 
+
+    const result = await req.pool.query(query, params);
+    
+    // Create Dictionary { "2025-12-07": { count: 5 } }
+    const heatmapData = {};
+    result.rows.forEach(r => {
+      if (r.date_key) {
+        heatmapData[r.date_key] = { count: parseInt(r.count) };
+      }
+    });
+
+    res.json({ heatmap: heatmapData });
+  } catch (err) {
+    console.error("Error fetching heatmap:", err);
+    res.status(500).json({ error: "Error fetching heatmap" });
+  }
+});
+
+// D. PERFORMANCE METRICS
+router.get("/analytics/performance", async (req, res) => {
+  if (!req.session.user) return res.status(401).json({ error: "Auth required" });
+  try {
+    const { days = 30 } = req.query; 
     const query = `
       SELECT 
-        DATE(timestamp) as date, 
+        TO_CHAR(timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD') as date, 
         AVG(system_uptime) as uptime, 
         MAX(active_devices) as "activeDevices"
       FROM system_metrics 
       WHERE timestamp >= NOW() - INTERVAL '${parseInt(days)} days'
-      GROUP BY DATE(timestamp)
-      ORDER BY DATE(timestamp) ASC
+      GROUP BY 1
+      ORDER BY 1 ASC
     `;
-
-    const result = await pool.query(query);
+    const result = await req.pool.query(query);
     res.json({ history: result.rows });
   } catch (err) {
     console.error("Error fetching performance history:", err);
@@ -270,13 +340,15 @@ router.get("/incidents", async (req, res) => {
     let pendingIncidents = [];
     let verifiedIncidents = [];
 
+    // 1. PENDING (With Fixes)
     if (type === "all" || type === "pending") {
       let pendingQuery = `
         SELECT
           ia.m AS device_id,
-          ia.started_at AS timestamp,
-          ia.last_seen,
+          ia.started_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila' as start_time,
+          TO_CHAR(ia.last_seen - ia.started_at, 'HH24:MI:SS') as duration,
           ia.alert_level,
+          ia.event_stage,
           GREATEST(ia.fa, ia.fb) AS flame_value,
           GREATEST(ia.sa, ia.sb) AS smoke_value,
           GREATEST(ia.ta, ia.tb) AS temp_value
@@ -301,9 +373,14 @@ router.get("/incidents", async (req, res) => {
       } catch (e) { pendingIncidents = []; }
     }
 
+    // 2. VERIFIED (With Fixes)
     if (type === "all" || type === "verified") {
       let verifiedQuery = `
-        SELECT vi.*, u.username as verified_by_username
+        SELECT 
+          vi.id, vi.device_id, vi.alert_level, vi.flame_value, vi.smoke_value, vi.temp_value, vi.notes,
+          vi.timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila' as timestamp,
+          vi.verified_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila' as verified_at,
+          u.username as verified_by_username
         FROM verified_incidents vi
         LEFT JOIN users u ON vi.verified_by = u.id
         WHERE 1=1
@@ -384,7 +461,7 @@ router.get("/official-incidents", async (req, res) => {
   }
 });
 
-// EXPORT OFFICIAL INCIDENTS
+// EXPORT OFFICIAL INCIDENTS - FIXED TIMEZONE FOR EXCEL
 router.get("/official-incidents/export", async (req, res) => {
   if (!req.session.user) return res.status(401).json({ error: "Auth required" });
   try {
@@ -401,7 +478,20 @@ router.get("/official-incidents/export", async (req, res) => {
     if (!result.rows.length) return res.status(404).json({ error: "No records" });
 
     const headers = Object.keys(result.rows[0]);
-    const csvRows = [headers.join(','), ...result.rows.map(row => headers.map(h => `"${String(row[h]||'').replace(/"/g, '""')}"`).join(','))];
+    
+    // FIX: Manual conversion of dates to PH time string before CSV generation
+    const csvRows = [headers.join(',')];
+    
+    result.rows.forEach(row => {
+      const values = headers.map(h => {
+        let val = row[h];
+        if (val instanceof Date) {
+          val = val.toLocaleString("en-PH", { timeZone: "Asia/Manila" });
+        }
+        return `"${String(val || '').replace(/"/g, '""')}"`;
+      });
+      csvRows.push(values.join(','));
+    });
     
     if (format === 'excel') res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     else res.setHeader('Content-Type', 'text/csv');
@@ -409,6 +499,7 @@ router.get("/official-incidents/export", async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="incidents_${new Date().toISOString().split('T')[0]}.${format === 'excel' ? 'xlsx' : 'csv'}"`);
     res.send(csvRows.join('\n'));
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Export error" });
   }
 });
