@@ -1,10 +1,11 @@
-# Treat these files as documentation so they don't count toward 100% HTML
-*.html linguist-detectable=true
+# Tell GitHub that HTML files are just "documentation" 
+# This removes them from the percentage calculation
+*.html linguist-documentation=true
 
-# Make sure CSS and JS are weighted heavily
-*.css linguist-detectable=true
+# Ensure your JavaScript and CSS are fully counted
 *.js linguist-detectable=true
+*.css linguist-detectable=true
 
-# If you have vendor/third-party files you want to IGNORE
-# (so they don't mess up your stats)
-path/to/external/library/* linguist-vendored
+# If you have large JSON files for your fire monitoring data, 
+# you can ignore them so they don't show up as "Other"
+*.json linguist-documentation=true
