@@ -1,2 +1,10 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Treat these files as documentation so they don't count toward 100% HTML
+*.html linguist-detectable=true
+
+# Make sure CSS and JS are weighted heavily
+*.css linguist-detectable=true
+*.js linguist-detectable=true
+
+# If you have vendor/third-party files you want to IGNORE
+# (so they don't mess up your stats)
+path/to/external/library/* linguist-vendored
